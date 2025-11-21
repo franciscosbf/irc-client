@@ -411,7 +411,6 @@ func (n *Network) StartListener() {
 					parts := strings.SplitN(cmsg.content, " :", 2)
 					tag := parts[0]
 					topic := parts[1]
-					fmt.Println(cmsg.content)
 					channel, ok := n.getChannel(tag)
 					if !ok {
 						break
