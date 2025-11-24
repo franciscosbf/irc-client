@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"iter"
 	"log"
 	"net"
 	"os/user"
@@ -78,9 +77,9 @@ func DialNetworkConnection(host string, port uint16) (*NetworkConnection, error)
 }
 
 type NetworkChannel struct {
+	tag        string
 	closed     atomic.Bool
 	noMoreMsgs chan struct{}
-	tag        string
 	msgs       chan ChannelMessage
 	network    *Network
 	users      map[string]struct{}
@@ -99,6 +98,10 @@ func (nc *NetworkChannel) stopReceivingMsgs() {
 	nc.signalNoMoreMsgs()
 }
 
+func (nc *NetworkChannel) GetTag() string {
+	return nc.tag
+}
+
 func (nc *NetworkChannel) SendMessage(content string) error {
 	privMsg := privMessage{
 		target:  nc.tag,
@@ -107,22 +110,16 @@ func (nc *NetworkChannel) SendMessage(content string) error {
 	return nc.network.conn.write(privMsg.encode())
 }
 
-func (nc *NetworkChannel) ReceiveMessage() iter.Seq[ChannelMessage] {
-	return func(yield func(ChannelMessage) bool) {
-		if nc.closed.Load() {
-			return
-		}
+func (nc *NetworkChannel) ReceiveMessage() (ChannelMessage, bool) {
+	if nc.closed.Load() {
+		return ChannelMessage{}, false
+	}
 
-		for {
-			select {
-			case <-nc.noMoreMsgs:
-				return
-			case msg := <-nc.msgs:
-				if !yield(msg) {
-					return
-				}
-			}
-		}
+	select {
+	case <-nc.noMoreMsgs:
+		return ChannelMessage{}, false
+	case msg, ok := <-nc.msgs:
+		return msg, ok
 	}
 }
 
@@ -403,7 +400,7 @@ func (n *Network) StartListener() {
 						Content: "Nickname " + nickname + " is invalid",
 					}
 				case err_NICKNAMEINUSE:
-					nickname := n.getNickname()
+					nickname, _, _ := strings.Cut(cmsg.content, " :")
 					n.msgs <- NetworkMessage{
 						Content: nickname + " is already in use",
 					}
@@ -593,14 +590,9 @@ func (n *Network) GetNickname() string {
 	return n.getNickname()
 }
 
-func (n *Network) ReceiveMessage() iter.Seq[NetworkMessage] {
-	return func(yield func(NetworkMessage) bool) {
-		for msg := range n.msgs {
-			if !yield(msg) {
-				return
-			}
-		}
-	}
+func (n *Network) ReceiveMessage() (NetworkMessage, bool) {
+	msg, ok := <-n.msgs
+	return msg, ok
 }
 
 func (n *Network) JoinChannel(tag string) (*NetworkChannel, error) {
@@ -609,8 +601,8 @@ func (n *Network) JoinChannel(tag string) (*NetworkChannel, error) {
 	}
 
 	channel := &NetworkChannel{
-		noMoreMsgs: make(chan struct{}),
 		tag:        tag,
+		noMoreMsgs: make(chan struct{}, 1),
 		msgs:       make(chan ChannelMessage, messagesBufSize),
 		network:    n,
 		users:      map[string]struct{}{},

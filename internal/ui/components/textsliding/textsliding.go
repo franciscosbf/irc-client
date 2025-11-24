@@ -4,8 +4,15 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/franciscosbf/irc-client/internal/ui/cmds"
 )
+
+type tickMsg time.Time
+
+func tickCmd(interval time.Duration) tea.Cmd {
+	return tea.Tick(interval, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
+}
 
 type Model struct {
 	text       string
@@ -16,17 +23,22 @@ type Model struct {
 }
 
 func (m Model) Sliding() tea.Cmd {
-	return cmds.Tick(m.interval)
+	return tickCmd(m.interval)
 }
 
 func (m *Model) SetWidth(w int) {
 	m.width = w
 	m.windowSize = max(m.width, len(m.text)+1)
+	m.pos = 0
+}
+
+func (m Model) Init() tea.Cmd {
+	return m.Sliding()
 }
 
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg.(type) {
-	case cmds.TickMsg:
+	case tickMsg:
 		m.pos++
 		if m.pos == m.windowSize {
 			m.pos = 0
@@ -47,7 +59,7 @@ func (m Model) View() string {
 
 	start := m.pos
 	end := m.pos + len(m.text)
-	remainder := min(len(window), end)
+	remainder := min(m.windowSize, end)
 
 	copy(window[start:remainder], text[:remainder-start])
 	copy(window[:end-remainder], text[remainder-start:])
@@ -55,7 +67,7 @@ func (m Model) View() string {
 	return string(window[:m.width])
 }
 
-func New(text string, interval time.Duration) Model {
+func InitialModel(text string, interval time.Duration) Model {
 	return Model{
 		text:       text,
 		interval:   interval,
