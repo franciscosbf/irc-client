@@ -17,7 +17,7 @@ type InvalidCmdErr struct {
 var specialChs = []rune{'[', ']', '\\', '`', '_', '^', '{', '|', '}'}
 
 func (e InvalidCmdErr) Error() string {
-	return fmt.Sprintf("Invalid command %s: %s", e.CmdType, e.Reason)
+	return fmt.Sprintf("Mistyped command %s: %s", e.CmdType, e.Reason)
 }
 
 func trimRight(input string) string {
@@ -95,7 +95,7 @@ func Parse(input string) (Cmd, error) {
 	cmdType, args := cut(input[1:])
 	switch Type(cmdType) {
 	case Help:
-		if len(args) != 0 {
+		if args != "" {
 			return nil, InvalidCmdErr{
 				CmdType: Help,
 				Reason:  "command doesn't have arguments",
@@ -145,7 +145,7 @@ func Parse(input string) (Cmd, error) {
 			Name:     name,
 		}, nil
 	case Disconnect:
-		if len(args) != 0 {
+		if args != "" {
 			return nil, InvalidCmdErr{
 				CmdType: Disconnect,
 				Reason:  "command doesn't have arguments",
@@ -194,7 +194,7 @@ func Parse(input string) (Cmd, error) {
 			Nickname: nickname,
 		}, nil
 	case Quit:
-		if len(args) != 0 {
+		if args != "" {
 			return nil, InvalidCmdErr{
 				CmdType: Quit,
 				Reason:  "command doesn't have arguments",
@@ -204,7 +204,7 @@ func Parse(input string) (Cmd, error) {
 	}
 
 	return nil, fmt.Errorf(
-		"Unknown command: %v. "+
+		"Unknown command: %s\n"+
 			"Type /help and check the available commands",
 		input,
 	)
