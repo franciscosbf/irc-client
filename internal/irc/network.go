@@ -118,13 +118,13 @@ func (nc *NetworkChannel) ReceiveMessage() (ChannelMessage, bool) {
 	select {
 	case <-nc.noMoreMsgs:
 		return ChannelMessage{}, false
-	case msg, ok := <-nc.msgs:
-		return msg, ok
+	case msg := <-nc.msgs:
+		return msg, true
 	}
 }
 
 func (nc *NetworkChannel) Part() error {
-	if nc.closed.CompareAndSwap(false, true) {
+	if !nc.closed.CompareAndSwap(false, true) {
 		return nil
 	}
 

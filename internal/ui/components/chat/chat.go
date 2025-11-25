@@ -18,6 +18,14 @@ func (m Model) GetTag() string {
 	return m.tag
 }
 
+func (m Model) GetWidth() int {
+	return m.viewport.Width
+}
+
+func (m Model) GetHeight() int {
+	return m.viewport.Height
+}
+
 func (m *Model) AddMsg(msg string) {
 	m.msgs = append(m.msgs, msg)
 

@@ -92,8 +92,8 @@ func Parse(input string) (Cmd, error) {
 		}, nil
 	}
 
-	cmd, args := cut(input[1:])
-	switch Type(cmd) {
+	cmdType, args := cut(input[1:])
+	switch Type(cmdType) {
 	case Help:
 		if len(args) != 0 {
 			return nil, InvalidCmdErr{
@@ -152,21 +152,22 @@ func Parse(input string) (Cmd, error) {
 			}
 		}
 		return DisconnectCmd{}, nil
-	case Join, Msg:
-		if args == "" {
-			return nil, InvalidCmdErr{
-				CmdType: Nick,
-				Reason:  "expecting argument <channel>",
-			}
-		}
+
+	case Join, Part:
 		var cmd Cmd
-		if tag := args; tag == "join" {
+		if Type(cmdType) == Join {
 			cmd = JoinCmd{
-				Tag: tag,
+				Tag: args,
 			}
 		} else {
 			cmd = PartCmd{
-				Tag: tag,
+				Tag: args,
+			}
+		}
+		if args == "" {
+			return nil, InvalidCmdErr{
+				CmdType: cmd.GetType(),
+				Reason:  "expecting argument <channel>",
 			}
 		}
 		if !isChannelTagValid(args) {
@@ -176,7 +177,7 @@ func Parse(input string) (Cmd, error) {
 			}
 		}
 		return cmd, nil
-	case "nick":
+	case Nick:
 		if args == "" {
 			return nil, InvalidCmdErr{
 				CmdType: Nick,

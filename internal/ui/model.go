@@ -176,13 +176,56 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.chat[networkChat].AddMsg("No current network")
 					}
 				case cmds.JoinCmd:
-					// TODO: handle
+					if m.network != nil {
+						if _, ok := m.modeledChannels[cmd.Tag]; ok {
+							m.chat[networkChat].AddMsg("Already in channel" + cmd.Tag)
+						} else if channel, err := m.network.JoinChannel(cmd.Tag); err == nil {
+							prevActiveChat := m.chat[m.activeChat]
+							m.activeChat = len(m.chat)
+							m.chat = append(m.chat, chat.InitialModel(cmd.Tag))
+							m.modeledChannels[cmd.Tag] = modeledChannel{
+								index:   m.activeChat,
+								channel: channel,
+							}
+							m.chat[m.activeChat].SetSize(prevActiveChat.GetWidth(), prevActiveChat.GetHeight())
+							m.chats.SetChats(m.chat)
+							m.chats.SetSelectedChat(m.activeChat)
+							additionalCmds = append(additionalCmds, channelMsgCmd(channel))
+						} else {
+							m.chat[networkChat].AddMsg("Failed to join channel " + cmd.Tag)
+						}
+					} else {
+						m.chat[networkChat].AddMsg("No current network")
+					}
 				case cmds.PartCmd:
-					// TODO: handle
+					if m.network != nil {
+						if chatChannel, ok := m.modeledChannels[cmd.Tag]; ok {
+							delete(m.modeledChannels, chatChannel.channel.GetTag())
+							m.chat = append(m.chat[:chatChannel.index], m.chat[chatChannel.index+1:]...)
+							m.chats.SetChats(m.chat)
+							if m.activeChat >= chatChannel.index {
+								for i := m.activeChat; i < len(m.chat); i++ {
+									modeledChannel := m.modeledChannels[m.chat[i].GetTag()]
+									modeledChannel.index--
+									m.modeledChannels[m.chat[i].GetTag()] = modeledChannel
+								}
+								m.activeChat--
+							}
+							m.chats.SetSelectedChat(m.activeChat)
+							if err := chatChannel.channel.Part(); err == nil {
+							} else {
+								m.chat[networkChat].AddMsg("Failed to part channel " + cmd.Tag)
+							}
+						} else {
+							m.chat[networkChat].AddMsg("Not in channel " + cmd.Tag)
+						}
+					} else {
+						m.chat[networkChat].AddMsg("No current network")
+					}
 				case cmds.NickCmd:
 					if m.network != nil {
 						if err := m.network.ChangeNickname(cmd.Nickname); err != nil {
-							m.chat[networkChat].AddMsg("Failed to issue nickname change")
+							m.chat[networkChat].AddMsg("Failed to issue nickname change to " + cmd.Nickname)
 						}
 					} else {
 						m.chat[networkChat].AddMsg("No current network")
@@ -219,22 +262,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.chat[networkChat].AddMsg(msg.msg.Content)
 		additionalCmds = append(additionalCmds, networkMsgCmd(m.network))
-		if !m.chat[networkChat].AtBottom() {
-			m.chat[networkChat].GoToBottom()
-		}
+		m.chat[networkChat].GoToBottom()
 	case channelMsg:
-		if !msg.isOpen {
-			break
-		}
 		chatChannel, ok := m.modeledChannels[msg.channel.GetTag()]
 		if !ok {
 			break
 		}
-		m.chat[chatChannel.index].AddMsg(msg.msg.Sender + " " + msg.msg.Content)
-		additionalCmds = append(additionalCmds, channelMsgCmd(chatChannel.channel))
-		if chatChannel.index == m.activeChat && !m.chat[chatChannel.index].AtBottom() {
-			m.chat[m.activeChat].GoToBottom()
+		if !msg.isOpen {
+			break
 		}
+		if msg.msg.Sender != "" {
+			m.chat[chatChannel.index].AddMsg(msg.msg.Sender + " " + msg.msg.Content)
+		} else {
+			m.chat[chatChannel.index].AddMsg(msg.msg.Content)
+		}
+		additionalCmds = append(additionalCmds, channelMsgCmd(chatChannel.channel))
+		m.chat[chatChannel.index].GoToBottom()
 	}
 
 	m.prompt, promptCmd = m.prompt.Update(msg)
@@ -269,6 +312,7 @@ func (m model) View() string {
 func initialModel() model {
 	m := model{}
 
+	m.modeledChannels = map[string]modeledChannel{}
 	m.activeChat = networkChat
 	m.chat = []chat.Model{chat.InitialModel("network")}
 	m.chats = chats.InitialModel()
