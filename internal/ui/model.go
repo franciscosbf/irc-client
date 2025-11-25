@@ -89,6 +89,21 @@ type model struct {
 	sliding         textsliding.Model
 }
 
+func (m *model) setActiveChat(index int) {
+	m.activeChat = index
+	m.prevActiveChat = m.activeChat
+}
+
+func (m *model) toggleActiveChatWithNetworkChat() {
+	if m.activeChat == networkChat {
+		m.activeChat = m.prevActiveChat
+	} else {
+		m.prevActiveChat = m.activeChat
+		m.activeChat = networkChat
+	}
+	m.chatsList.SetSelectedChat(m.activeChat)
+}
+
 func (m *model) addaptToWindowSize(width, height int) {
 	leftSlice := int(float64(width) * 0.12)
 	rightSlice := width - leftSlice
@@ -109,14 +124,12 @@ func (m *model) addaptToWindowSize(width, height int) {
 }
 
 func (m *model) goToPreviousChat() {
-	m.activeChat = max(0, m.activeChat-1)
-	m.prevActiveChat = m.activeChat
+	m.setActiveChat(max(0, m.activeChat-1))
 	m.chatsList.SetSelectedChat(m.activeChat)
 }
 
 func (m *model) goToNextChat() {
-	m.activeChat = min(len(m.chats)-1, m.activeChat+1)
-	m.prevActiveChat = m.activeChat
+	m.setActiveChat(min(len(m.chats)-1, m.activeChat+1))
 	m.chatsList.SetSelectedChat(m.activeChat)
 }
 
@@ -161,8 +174,7 @@ func (m *model) interpretUserInput() (teaCmd tea.Cmd, exit bool) {
 				m.addAppMsg("Already in channel" + cmd.Tag)
 			} else if channel, err := m.network.JoinChannel(cmd.Tag); err == nil {
 				prevActiveChat := m.chats[m.activeChat]
-				m.activeChat = len(m.chats)
-				m.prevActiveChat = m.activeChat
+				m.setActiveChat(len(m.chats))
 				m.chats = append(m.chats, chat.InitialModel(cmd.Tag))
 				m.modeledChannels[cmd.Tag] = modeledChannel{
 					index:   m.activeChat,
@@ -190,8 +202,7 @@ func (m *model) interpretUserInput() (teaCmd tea.Cmd, exit bool) {
 						modeledChannel.index--
 						m.modeledChannels[m.chats[i].GetTag()] = modeledChannel
 					}
-					m.activeChat--
-					m.prevActiveChat = m.activeChat
+					m.setActiveChat(m.activeChat - 1)
 				}
 				m.chatsList.SetSelectedChat(m.activeChat)
 				if err := chatChannel.channel.Part(); err == nil {
@@ -257,8 +268,7 @@ func (m *model) interpretChannelMsg(msg channelMsg) tea.Cmd {
 }
 
 func (m *model) resetChats() {
-	m.activeChat = networkChat
-	m.prevActiveChat = m.activeChat
+	m.setActiveChat(networkChat)
 	m.chats = m.chats[:1]
 	m.chatsList.SetChats(m.chats)
 	m.chatsList.SetSelectedChat(m.activeChat)
@@ -342,13 +352,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "alt+n":
 			m.goToNextChat()
 		case "alt+t":
-			if m.activeChat == networkChat {
-				m.activeChat = m.prevActiveChat
-			} else {
-				m.prevActiveChat = m.activeChat
-				m.activeChat = networkChat
-			}
-			m.chatsList.SetSelectedChat(m.activeChat)
+			m.toggleActiveChatWithNetworkChat()
 		case "enter":
 			if cmd, exit := m.interpretUserInput(); exit {
 				return m, tea.Quit
@@ -362,9 +366,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		switch msg.Button {
 		case tea.MouseButtonWheelUp:
-			m.chats[m.activeChat].WheelScrollUp()
+			if msg.Alt {
+				m.goToPreviousChat()
+			} else {
+				m.chats[m.activeChat].WheelScrollUp()
+			}
 		case tea.MouseButtonWheelDown:
-			m.chats[m.activeChat].WheelScrollDown()
+			if msg.Alt {
+				m.goToNextChat()
+			} else {
+				m.chats[m.activeChat].WheelScrollDown()
+			}
 		}
 	case networkMsg:
 		if cmd := m.interpretNetworkMsg(msg); cmd != nil {
