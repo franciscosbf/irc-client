@@ -354,7 +354,7 @@ func (n *Network) StartListener() {
 		for {
 			msg, err = n.fetchMessage()
 			if err != nil {
-				if err != io.EOF && errors.Is(err, net.ErrClosed) {
+				if err != io.EOF && !errors.Is(err, net.ErrClosed) {
 					log.Printf("failed to read message from network: %v\n", err)
 				}
 				return
