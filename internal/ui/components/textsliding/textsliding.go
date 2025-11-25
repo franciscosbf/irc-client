@@ -22,14 +22,23 @@ type Model struct {
 	interval   time.Duration
 }
 
+func (m *Model) addjustWindowSize() {
+	m.windowSize = max(m.width, len(m.text)+1)
+	m.pos = m.windowSize - 1
+}
+
 func (m Model) Sliding() tea.Cmd {
 	return tickCmd(m.interval)
 }
 
 func (m *Model) SetWidth(w int) {
 	m.width = w
-	m.windowSize = max(m.width, len(m.text)+1)
-	m.pos = 0
+	m.addjustWindowSize()
+}
+
+func (m *Model) SetText(text string) {
+	m.text = text
+	m.addjustWindowSize()
 }
 
 func (m Model) Init() tea.Cmd {
@@ -39,9 +48,9 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg.(type) {
 	case tickMsg:
-		m.pos++
-		if m.pos == m.windowSize {
-			m.pos = 0
+		m.pos--
+		if m.pos < 0 {
+			m.pos = m.windowSize - 1
 		}
 
 		return m, m.Sliding()
@@ -51,6 +60,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
+	if m.windowSize == 0 {
+		return ""
+	}
+
 	window := make([]rune, m.windowSize)
 	for i := range m.windowSize {
 		window[i] = ' '
