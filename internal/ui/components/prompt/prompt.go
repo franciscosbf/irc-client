@@ -1,11 +1,16 @@
 package prompt
 
 import (
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 const maxPromptInput = 300
+
+var suppressedKeys = key.NewBinding(key.WithKeys(
+	"alt+j", "alt+k", "alt+b", "alt+n", "alt+p", "alt+t",
+))
 
 func Blink() tea.Cmd {
 	return textinput.Blink
@@ -36,10 +41,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "alt+j", "alt+k", "alt+b", "alt+n", "alt+p":
+		if key.Matches(msg, suppressedKeys) {
 			return m, nil
-		default:
 		}
 	}
 
