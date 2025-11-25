@@ -56,6 +56,10 @@ func (m Model) AtBottom() bool {
 	return m.viewport.AtBottom()
 }
 
+func (m Model) PastBottom() bool {
+	return m.viewport.PastBottom()
+}
+
 func (m *Model) GoToBottom() {
 	m.viewport.GotoBottom()
 }
