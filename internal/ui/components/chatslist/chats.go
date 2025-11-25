@@ -1,4 +1,4 @@
-package chats
+package chatslist
 
 import (
 	"github.com/charmbracelet/bubbles/list"

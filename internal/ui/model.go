@@ -9,17 +9,18 @@ import (
 	"github.com/franciscosbf/irc-client/internal/cmds"
 	"github.com/franciscosbf/irc-client/internal/irc"
 	"github.com/franciscosbf/irc-client/internal/ui/components/chat"
-	"github.com/franciscosbf/irc-client/internal/ui/components/chats"
+	"github.com/franciscosbf/irc-client/internal/ui/components/chatslist"
 	"github.com/franciscosbf/irc-client/internal/ui/components/prompt"
 	"github.com/franciscosbf/irc-client/internal/ui/components/textsliding"
 )
 
 const (
-	progName        = "IRC Client"
 	quitMsg         = "C'est la vie"
 	slidingInterval = 250 * time.Millisecond
 	networkChat     = 0
 )
+
+var notConnectedSlidingText = "Not connected"
 
 var paddedBorderStyle = lipgloss.NewStyle().
 	Padding(1, 1, 1, 1)
@@ -29,8 +30,16 @@ var roundedBorderStyle = lipgloss.NewStyle().
 
 var slidingStyle = lipgloss.NewStyle().
 	Bold(true).
-	PaddingLeft(1).
-	Foreground(lipgloss.Color("#bde1e4"))
+	Foreground(lipgloss.Color("#bde1e4")).
+	PaddingLeft(1)
+
+var appMsgStyle = lipgloss.NewStyle().
+	Bold(true).
+	Foreground(lipgloss.AdaptiveColor{Light: "#1a1a1a", Dark: "#dddddd"})
+
+var nickNameStyle = lipgloss.NewStyle().
+	Bold(true).
+	Foreground(lipgloss.AdaptiveColor{Light: "#1a1a1a", Dark: "#dddddd"})
 
 type networkMsg struct {
 	msg    irc.NetworkMessage
@@ -72,19 +81,218 @@ type modeledChannel struct {
 type model struct {
 	network         *irc.Network
 	modeledChannels map[string]modeledChannel
+	chatsList       chatslist.Model
+	chats           []chat.Model
+	prevActiveChat  int
+	activeChat      int
+	prompt          prompt.Model
+	sliding         textsliding.Model
+}
 
-	chats      chats.Model
-	chat       []chat.Model
-	activeChat int
-	prompt     prompt.Model
-	sliding    textsliding.Model
+func (m *model) addaptToWindowSize(width, height int) {
+	leftSlice := int(float64(width) * 0.12)
+	rightSlice := width - leftSlice
+	mod := func(x int) int {
+		if x < 0 {
+			return -x
+		} else {
+			return x
+		}
+	}
+	m.chatsList.SetSize(mod(leftSlice-2), mod(height-3))
+	m.sliding.SetWidth(mod(leftSlice - 3))
+	m.chats[m.activeChat].SetSize(mod(rightSlice-2), mod(height-3))
+	m.prompt.SetWidth(rightSlice)
+	if m.chats[m.activeChat].PastBottom() {
+		m.chats[m.activeChat].GoToBottom()
+	}
+}
+
+func (m *model) goToPreviousChat() {
+	m.activeChat = max(0, m.activeChat-1)
+	m.prevActiveChat = m.activeChat
+	m.chatsList.SetSelectedChat(m.activeChat)
+}
+
+func (m *model) goToNextChat() {
+	m.activeChat = min(len(m.chats)-1, m.activeChat+1)
+	m.prevActiveChat = m.activeChat
+	m.chatsList.SetSelectedChat(m.activeChat)
+}
+
+func (m *model) interpretUserInput() (teaCmd tea.Cmd, exit bool) {
+	input := m.prompt.GetInput()
+	m.prompt.ResetContent()
+	cmd, err := cmds.Parse(input)
+	if err != nil {
+		m.addAppMsg(err.Error())
+		return
+	}
+	if cmd, ok := cmd.(cmds.HelpCmd); ok {
+		m.addAppMsg(cmd.HelpMsg())
+		return
+	}
+	switch cmd := cmd.(type) {
+	case cmds.ConnectCmd:
+		m.quitCurrentNetwork()
+		conn, err := irc.DialNetworkConnection(cmd.Host, cmd.Port)
+		if err != nil {
+			m.addAppMsg("Failed to dial connection")
+			break
+		}
+		network := irc.NewNetwork(conn, cmd.Nickname, cmd.Name)
+		network.StartListener()
+		if err := network.Register(); err != nil {
+			m.addAppMsg("Failed to send connection registration")
+			break
+		}
+		m.network = network
+		m.sliding.SetText("Connected to " + cmd.Host)
+		teaCmd = networkMsgCmd(network)
+	case cmds.DisconnectCmd:
+		if !m.quitCurrentNetwork() {
+			m.addAppMsg("No current network")
+		} else {
+			m.sliding.SetText(notConnectedSlidingText)
+		}
+	case cmds.JoinCmd:
+		if m.network != nil {
+			if _, ok := m.modeledChannels[cmd.Tag]; ok {
+				m.addAppMsg("Already in channel" + cmd.Tag)
+			} else if channel, err := m.network.JoinChannel(cmd.Tag); err == nil {
+				prevActiveChat := m.chats[m.activeChat]
+				m.activeChat = len(m.chats)
+				m.prevActiveChat = m.activeChat
+				m.chats = append(m.chats, chat.InitialModel(cmd.Tag))
+				m.modeledChannels[cmd.Tag] = modeledChannel{
+					index:   m.activeChat,
+					channel: channel,
+				}
+				m.chats[m.activeChat].SetSize(prevActiveChat.GetWidth(), prevActiveChat.GetHeight())
+				m.chatsList.SetChats(m.chats)
+				m.chatsList.SetSelectedChat(m.activeChat)
+				teaCmd = channelMsgCmd(channel)
+			} else {
+				m.addAppMsg("Failed to join channel " + cmd.Tag)
+			}
+		} else {
+			m.addAppMsg("No current network")
+		}
+	case cmds.PartCmd:
+		if m.network != nil {
+			if chatChannel, ok := m.modeledChannels[cmd.Tag]; ok {
+				delete(m.modeledChannels, chatChannel.channel.GetTag())
+				m.chats = append(m.chats[:chatChannel.index], m.chats[chatChannel.index+1:]...)
+				m.chatsList.SetChats(m.chats)
+				if m.activeChat >= chatChannel.index {
+					for i := m.activeChat; i < len(m.chats); i++ {
+						modeledChannel := m.modeledChannels[m.chats[i].GetTag()]
+						modeledChannel.index--
+						m.modeledChannels[m.chats[i].GetTag()] = modeledChannel
+					}
+					m.activeChat--
+					m.prevActiveChat = m.activeChat
+				}
+				m.chatsList.SetSelectedChat(m.activeChat)
+				if err := chatChannel.channel.Part(); err == nil {
+				} else {
+					m.addAppMsg("Failed to part channel " + cmd.Tag)
+				}
+			} else {
+				m.addAppMsg("Not in channel " + cmd.Tag)
+			}
+		} else {
+			m.addAppMsg("No current network")
+		}
+	case cmds.NickCmd:
+		if m.network != nil {
+			if err := m.network.ChangeNickname(cmd.Nickname); err != nil {
+				m.addAppMsg("Failed to issue nickname change to " + cmd.Nickname)
+			}
+		} else {
+			m.addAppMsg("No current network")
+		}
+	case cmds.QuitCmd:
+		m.quitCurrentNetwork()
+		exit = true
+	case cmds.MsgCmd:
+		if m.activeChat == networkChat {
+			break
+		} else if m.network != nil {
+			modeledChannel := m.modeledChannels[m.chats[m.activeChat].GetTag()]
+			if err := modeledChannel.channel.SendMessage(cmd.MsgContent); err == nil {
+				m.addChannelMsg(m.activeChat, irc.ChannelMessage{
+					Sender:  m.network.GetNickname(),
+					Content: cmd.MsgContent,
+				})
+			} else {
+				m.addAppMsg("Failed to send message")
+			}
+		} else {
+			m.addAppMsg("No current network")
+		}
+	}
+
+	return
+}
+
+func (m *model) interpretNetworkMsg(msg networkMsg) tea.Cmd {
+	if !msg.isOpen {
+		m.addAppMsg("Disconnected from the network")
+		m.resetChats()
+		m.sliding.SetText(notConnectedSlidingText)
+		return nil
+	}
+	m.addNetworkMsg(msg.msg)
+	return networkMsgCmd(m.network)
+}
+
+func (m *model) interpretChannelMsg(msg channelMsg) tea.Cmd {
+	chatChannel, ok := m.modeledChannels[msg.channel.GetTag()]
+	if !ok || !msg.isOpen {
+		return nil
+	}
+	m.addChannelMsg(chatChannel.index, msg.msg)
+	return channelMsgCmd(chatChannel.channel)
 }
 
 func (m *model) resetChats() {
 	m.activeChat = networkChat
-	m.chat = m.chat[:1]
-	m.chats.SetChats(m.chat)
-	m.chats.SetSelectedChat(0)
+	m.prevActiveChat = m.activeChat
+	m.chats = m.chats[:1]
+	m.chatsList.SetChats(m.chats)
+	m.chatsList.SetSelectedChat(m.activeChat)
+}
+
+func (m *model) addAppMsg(msg string) {
+	m.chats[networkChat].AddMsg(appMsgStyle.Render(msg))
+	m.chats[networkChat].GoToBottom()
+}
+
+func (m *model) goToBottomIfNotActiveChat(index int) {
+	if index != m.activeChat {
+		return
+	}
+
+	m.chats[index].GoToBottom()
+}
+
+func (m *model) addNetworkMsg(msg irc.NetworkMessage) {
+	m.chats[networkChat].AddMsg(msg.Content)
+
+	m.goToBottomIfNotActiveChat(networkChat)
+}
+
+func (m *model) addChannelMsg(index int, msg irc.ChannelMessage) {
+	var msgContent string
+	if msg.Sender != "" {
+		msgContent = nickNameStyle.Render(msg.Sender) + " " + msg.Content
+	} else {
+		msgContent = msg.Content
+	}
+	m.chats[index].AddMsg(msgContent)
+
+	m.goToBottomIfNotActiveChat(index)
 }
 
 func (m *model) quitCurrentNetwork() bool {
@@ -94,7 +302,6 @@ func (m *model) quitCurrentNetwork() bool {
 
 	if err := m.network.Quit(quitMsg); err != nil {
 		log.Printf("Got error when quitting network: %v\n", err)
-		return false
 	}
 
 	m.resetChats()
@@ -109,146 +316,45 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var (
-		chatsCmd       tea.Cmd
+		chatsListCmd   tea.Cmd
 		activeChatCmd  tea.Cmd
 		promptCmd      tea.Cmd
 		slidingCmd     tea.Cmd
 		additionalCmds []tea.Cmd
 	)
+	appendAdditionalCmd := func(cmd tea.Cmd) {
+		additionalCmds = append(additionalCmds, cmd)
+	}
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		leftSlice := int(float64(msg.Width) * 0.1)
-		rightSlice := msg.Width - leftSlice
-		mod := func(x int) int {
-			if x < 0 {
-				return -x
-			} else {
-				return x
-			}
-		}
-		m.chats.SetSize(mod(leftSlice-2), mod(msg.Height-3))
-		m.sliding.SetWidth(mod(leftSlice - 3))
-		m.chat[m.activeChat].SetSize(mod(rightSlice-2), mod(msg.Height-3))
-		m.prompt.SetWidth(rightSlice)
-		m.chat[m.activeChat].GoToBottom()
+		m.addaptToWindowSize(msg.Width, msg.Height)
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "alt+j":
-			m.chat[m.activeChat].ScrollOneLineDown()
+			m.chats[m.activeChat].ScrollOneLineDown()
 		case "alt+k":
-			m.chat[m.activeChat].ScrollOneLineUp()
+			m.chats[m.activeChat].ScrollOneLineUp()
 		case "alt+b":
-			m.chat[m.activeChat].GoToBottom()
-		case "alt+n":
-			m.activeChat = min(len(m.chat)-1, m.activeChat+1)
-			m.chats.SetSelectedChat(m.activeChat)
+			m.chats[m.activeChat].GoToBottom()
 		case "alt+p":
-			m.activeChat = max(0, m.activeChat-1)
-			m.chats.SetSelectedChat(m.activeChat)
-		case "enter":
-			input := m.prompt.GetInput()
-			m.prompt.ResetContent()
-			cmd, err := cmds.Parse(input)
-			if err != nil {
-				m.chat[m.activeChat].AddMsg(err.Error())
+			m.goToPreviousChat()
+		case "alt+n":
+			m.goToNextChat()
+		case "alt+t":
+			if m.activeChat == networkChat {
+				m.activeChat = m.prevActiveChat
 			} else {
-				switch cmd := cmd.(type) {
-				case cmds.HelpCmd:
-					m.chat[m.activeChat].AddMsg(cmd.HelpMsg())
-				case cmds.ConnectCmd:
-					m.quitCurrentNetwork()
-					conn, err := irc.DialNetworkConnection(cmd.Host, cmd.Port)
-					if err != nil {
-						m.chat[networkChat].AddMsg("Failed to dial connection")
-						break
-					}
-					network := irc.NewNetwork(conn, cmd.Nickname, cmd.Name)
-					network.StartListener()
-					if err := network.Register(); err != nil {
-						m.chat[networkChat].AddMsg("Failed to send connection registration")
-						break
-					}
-					additionalCmds = append(additionalCmds, networkMsgCmd(network))
-					m.network = network
-				case cmds.DisconnectCmd:
-					if !m.quitCurrentNetwork() {
-						m.chat[networkChat].AddMsg("No current network")
-					}
-				case cmds.JoinCmd:
-					if m.network != nil {
-						if _, ok := m.modeledChannels[cmd.Tag]; ok {
-							m.chat[networkChat].AddMsg("Already in channel" + cmd.Tag)
-						} else if channel, err := m.network.JoinChannel(cmd.Tag); err == nil {
-							prevActiveChat := m.chat[m.activeChat]
-							m.activeChat = len(m.chat)
-							m.chat = append(m.chat, chat.InitialModel(cmd.Tag))
-							m.modeledChannels[cmd.Tag] = modeledChannel{
-								index:   m.activeChat,
-								channel: channel,
-							}
-							m.chat[m.activeChat].SetSize(prevActiveChat.GetWidth(), prevActiveChat.GetHeight())
-							m.chats.SetChats(m.chat)
-							m.chats.SetSelectedChat(m.activeChat)
-							additionalCmds = append(additionalCmds, channelMsgCmd(channel))
-						} else {
-							m.chat[networkChat].AddMsg("Failed to join channel " + cmd.Tag)
-						}
-					} else {
-						m.chat[networkChat].AddMsg("No current network")
-					}
-				case cmds.PartCmd:
-					if m.network != nil {
-						if chatChannel, ok := m.modeledChannels[cmd.Tag]; ok {
-							delete(m.modeledChannels, chatChannel.channel.GetTag())
-							m.chat = append(m.chat[:chatChannel.index], m.chat[chatChannel.index+1:]...)
-							m.chats.SetChats(m.chat)
-							if m.activeChat >= chatChannel.index {
-								for i := m.activeChat; i < len(m.chat); i++ {
-									modeledChannel := m.modeledChannels[m.chat[i].GetTag()]
-									modeledChannel.index--
-									m.modeledChannels[m.chat[i].GetTag()] = modeledChannel
-								}
-								m.activeChat--
-							}
-							m.chats.SetSelectedChat(m.activeChat)
-							if err := chatChannel.channel.Part(); err == nil {
-							} else {
-								m.chat[networkChat].AddMsg("Failed to part channel " + cmd.Tag)
-							}
-						} else {
-							m.chat[networkChat].AddMsg("Not in channel " + cmd.Tag)
-						}
-					} else {
-						m.chat[networkChat].AddMsg("No current network")
-					}
-				case cmds.NickCmd:
-					if m.network != nil {
-						if err := m.network.ChangeNickname(cmd.Nickname); err != nil {
-							m.chat[networkChat].AddMsg("Failed to issue nickname change to " + cmd.Nickname)
-						}
-					} else {
-						m.chat[networkChat].AddMsg("No current network")
-					}
-				case cmds.QuitCmd:
-					m.quitCurrentNetwork()
-					return m, tea.Quit
-				case cmds.MsgCmd:
-					if m.activeChat == 0 {
-						break
-					} else if m.network != nil {
-						modeledChannel := m.modeledChannels[m.chat[m.activeChat].GetTag()]
-						if err := modeledChannel.channel.SendMessage(cmd.MsgContent); err == nil {
-							m.chat[m.activeChat].AddMsg(m.network.GetNickname() + " " + cmd.MsgContent)
-						} else {
-							m.chat[networkChat].AddMsg("Failed to send message")
-						}
-					} else {
-						m.chat[networkChat].AddMsg("No current network")
-					}
-				}
+				m.prevActiveChat = m.activeChat
+				m.activeChat = networkChat
 			}
-			m.chat[m.activeChat].GoToBottom()
+			m.chatsList.SetSelectedChat(m.activeChat)
+		case "enter":
+			if cmd, exit := m.interpretUserInput(); exit {
+				return m, tea.Quit
+			} else if cmd != nil {
+				appendAdditionalCmd(cmd)
+			}
 		case "ctrl+c", "esc":
 			m.quitCurrentNetwork()
 			return m, tea.Quit
@@ -256,44 +362,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		switch msg.Button {
 		case tea.MouseButtonWheelUp:
-			m.chat[m.activeChat].WheelScrollUp()
+			m.chats[m.activeChat].WheelScrollUp()
 		case tea.MouseButtonWheelDown:
-			m.chat[m.activeChat].WheelScrollDown()
+			m.chats[m.activeChat].WheelScrollDown()
 		}
 	case networkMsg:
-		if !msg.isOpen {
-			m.chat[networkChat].AddMsg("Disconnected from the network")
-			m.resetChats()
-			break
+		if cmd := m.interpretNetworkMsg(msg); cmd != nil {
+			appendAdditionalCmd(cmd)
 		}
-		m.chat[networkChat].AddMsg(msg.msg.Content)
-		additionalCmds = append(additionalCmds, networkMsgCmd(m.network))
-		m.chat[networkChat].GoToBottom()
 	case channelMsg:
-		chatChannel, ok := m.modeledChannels[msg.channel.GetTag()]
-		if !ok {
-			break
+		if cmd := m.interpretChannelMsg(msg); cmd != nil {
+			appendAdditionalCmd(cmd)
 		}
-		if !msg.isOpen {
-			break
-		}
-		if msg.msg.Sender != "" {
-			m.chat[chatChannel.index].AddMsg(msg.msg.Sender + " " + msg.msg.Content)
-		} else {
-			m.chat[chatChannel.index].AddMsg(msg.msg.Content)
-		}
-		additionalCmds = append(additionalCmds, channelMsgCmd(chatChannel.channel))
-		m.chat[chatChannel.index].GoToBottom()
 	}
 
 	m.prompt, promptCmd = m.prompt.Update(msg)
-	m.chats, chatsCmd = m.chats.Update(msg)
-	m.chat[m.activeChat], activeChatCmd = m.chat[m.activeChat].Update(msg)
+	m.chatsList, chatsListCmd = m.chatsList.Update(msg)
+	m.chats[m.activeChat], activeChatCmd = m.chats[m.activeChat].Update(msg)
 	m.sliding, slidingCmd = m.sliding.Update(msg)
 
 	cmds := tea.Batch(
 		append([]tea.Cmd{
-			chatsCmd,
+			chatsListCmd,
 			activeChatCmd,
 			promptCmd,
 			slidingCmd,
@@ -304,9 +394,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) View() string {
 	chats := paddedBorderStyle.Render(lipgloss.PlaceHorizontal(
-		m.chats.GetWidth(), lipgloss.Left, m.chats.View()))
+		m.chatsList.GetWidth(), lipgloss.Left, m.chatsList.View()))
 	sliding := slidingStyle.Render(m.sliding.View())
-	activeChat := roundedBorderStyle.Render(m.chat[m.activeChat].View())
+	activeChat := roundedBorderStyle.Render(m.chats[m.activeChat].View())
 	prompt := m.prompt.View()
 
 	return lipgloss.JoinHorizontal(
@@ -320,11 +410,11 @@ func initialModel() model {
 
 	m.modeledChannels = map[string]modeledChannel{}
 	m.activeChat = networkChat
-	m.chat = []chat.Model{chat.InitialModel("network")}
-	m.chats = chats.InitialModel()
-	m.chats.SetChats(m.chat)
+	m.chats = []chat.Model{chat.InitialModel("network")}
+	m.chatsList = chatslist.InitialModel()
+	m.chatsList.SetChats(m.chats)
 	m.prompt = prompt.InitialModel()
-	m.sliding = textsliding.InitialModel(progName, slidingInterval)
+	m.sliding = textsliding.InitialModel(notConnectedSlidingText, slidingInterval)
 
 	m.resetChats()
 
