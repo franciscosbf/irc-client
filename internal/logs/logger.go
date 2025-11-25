@@ -15,7 +15,7 @@ func (l Logger) Close() {
 }
 
 func Setup(logFilename string) (Logger, error) {
-	file, err := os.OpenFile(logFilename, os.O_CREATE|os.O_APPEND, 0o644)
+	file, err := os.OpenFile(logFilename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o666)
 	if err != nil {
 		return Logger{}, fmt.Errorf("failed to open log file %s: %v", logFilename, err)
 	}
