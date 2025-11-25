@@ -9,6 +9,7 @@ const (
 	Join       Type = "join"
 	Part       Type = "part"
 	Nick       Type = "nick"
+	Quit       Type = "quit"
 	Msg        Type = "msg"
 )
 
@@ -56,8 +57,14 @@ func (NickCmd) GetType() Type {
 	return Nick
 }
 
+type QuitCmd struct{}
+
+func (QuitCmd) GetType() Type {
+	return Quit
+}
+
 type MsgCmd struct {
-	Content string
+	MsgContent string
 }
 
 func (MsgCmd) GetType() Type {
@@ -78,5 +85,6 @@ func (HelpCmd) HelpMsg() string {
 /join <channel>                      Connects to a channel in the network
 /part <channel>                      Disconnects from a channel in the network
 /nick <nickname>                     Changes your nickname in the network
+/quit                                Closes the IRC Client
 <bunch of text>                      Sends a message in the current channel`
 }

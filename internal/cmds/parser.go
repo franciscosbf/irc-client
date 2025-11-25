@@ -88,7 +88,7 @@ func Parse(input string) (Cmd, error) {
 
 	if !strings.HasPrefix(input, "/") {
 		return MsgCmd{
-			Content: input,
+			MsgContent: input,
 		}, nil
 	}
 
@@ -152,7 +152,6 @@ func Parse(input string) (Cmd, error) {
 			}
 		}
 		return DisconnectCmd{}, nil
-
 	case Join, Part:
 		var cmd Cmd
 		if Type(cmdType) == Join {
@@ -194,6 +193,14 @@ func Parse(input string) (Cmd, error) {
 		return NickCmd{
 			Nickname: nickname,
 		}, nil
+	case Quit:
+		if len(args) != 0 {
+			return nil, InvalidCmdErr{
+				CmdType: Quit,
+				Reason:  "command doesn't have arguments",
+			}
+		}
+		return QuitCmd{}, nil
 	}
 
 	return nil, fmt.Errorf(

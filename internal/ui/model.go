@@ -230,21 +230,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					} else {
 						m.chat[networkChat].AddMsg("No current network")
 					}
+				case cmds.QuitCmd:
+					m.quitCurrentNetwork()
+					return m, tea.Quit
 				case cmds.MsgCmd:
 					if m.activeChat == 0 {
 						break
-					} else if m.network == nil {
-						m.chat[networkChat].AddMsg("No current network")
+					} else if m.network != nil {
+						modeledChannel := m.modeledChannels[m.chat[m.activeChat].GetTag()]
+						if err := modeledChannel.channel.SendMessage(cmd.MsgContent); err == nil {
+							m.chat[m.activeChat].AddMsg(m.network.GetNickname() + " " + cmd.MsgContent)
+						} else {
+							m.chat[networkChat].AddMsg("Failed to send message")
+						}
 					} else {
-						// TODO: handle
+						m.chat[networkChat].AddMsg("No current network")
 					}
 				}
 			}
 			m.chat[m.activeChat].GoToBottom()
 		case "ctrl+c", "esc":
-			if m.network != nil {
-				m.quitCurrentNetwork()
-			}
+			m.quitCurrentNetwork()
 			return m, tea.Quit
 		}
 	case tea.MouseMsg:
