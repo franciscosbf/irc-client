@@ -153,9 +153,9 @@ func (m *model) interpretUserInput() (teaCmd tea.Cmd, exit bool) {
 			m.addAppMsg("Failed to dial connection")
 			break
 		}
-		network := irc.NewNetwork(conn, cmd.Nickname, cmd.Name)
+		network := irc.NewNetwork(conn)
 		network.StartListener()
-		if err := network.Register(); err != nil {
+		if err := network.Register(cmd.Nickname, cmd.Name); err != nil {
 			m.addAppMsg("Failed to send connection registration")
 			break
 		}
@@ -170,8 +170,10 @@ func (m *model) interpretUserInput() (teaCmd tea.Cmd, exit bool) {
 		}
 	case cmds.JoinCmd:
 		if m.network != nil {
-			if _, ok := m.modeledChannels[cmd.Tag]; ok {
-				m.addAppMsg("Already in channel" + cmd.Tag)
+			if !m.network.IsRegistered() {
+				m.addAppMsg("Server is still registering user")
+			} else if _, ok := m.modeledChannels[cmd.Tag]; ok {
+				m.addAppMsg("Already in channel " + cmd.Tag)
 			} else if channel, err := m.network.JoinChannel(cmd.Tag); err == nil {
 				prevActiveChat := m.chats[m.activeChat]
 				m.setActiveChat(len(m.chats))
@@ -192,7 +194,9 @@ func (m *model) interpretUserInput() (teaCmd tea.Cmd, exit bool) {
 		}
 	case cmds.PartCmd:
 		if m.network != nil {
-			if chatChannel, ok := m.modeledChannels[cmd.Tag]; ok {
+			if !m.network.IsRegistered() {
+				m.addAppMsg("Server is still registering user")
+			} else if chatChannel, ok := m.modeledChannels[cmd.Tag]; ok {
 				delete(m.modeledChannels, chatChannel.channel.GetTag())
 				m.chats = append(m.chats[:chatChannel.index], m.chats[chatChannel.index+1:]...)
 				m.chatsList.SetChats(m.chats)

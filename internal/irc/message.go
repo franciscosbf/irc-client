@@ -163,6 +163,7 @@ func (m quitMessage) encode() []byte {
 type replyMessage struct {
 	baseMessage
 
+	target  string
 	code    uint16
 	content string
 }
@@ -232,6 +233,7 @@ func decodeMessage(raw []byte) message {
 			parts[1] = strings.TrimPrefix(parts[1], ":")
 			return replyMessage{
 				baseMessage: baseMsg,
+				target:      parts[0],
 				code:        uint16(code),
 				content:     parts[1],
 			}

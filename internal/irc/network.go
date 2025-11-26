@@ -141,7 +141,7 @@ func (nc *NetworkChannel) Part() error {
 }
 
 type Network struct {
-	realname string
+	registered atomic.Bool
 
 	nmx      sync.Mutex
 	nickname string
@@ -170,6 +170,13 @@ func (n *Network) hasNickname(nickname string) bool {
 	defer n.nmx.Unlock()
 
 	return n.nickname == nickname
+}
+
+func (n *Network) setNickname(nickname string) {
+	n.nmx.Lock()
+	defer n.nmx.Unlock()
+
+	n.nickname = nickname
 }
 
 func (n *Network) replaceNickname(oldNickName, newNickname string) bool {
@@ -363,8 +370,11 @@ func (n *Network) StartListener() {
 			switch cmsg := msg.(type) {
 			case replyMessage:
 				switch cmsg.code {
+				case rpl_WELCOME:
+					n.registered.Store(true)
+					n.setNickname(cmsg.target)
+					fallthrough
 				case
-					rpl_WELCOME,
 					rpl_YOURHOST,
 					rpl_CREATED,
 					rpl_MYINFO,
@@ -561,9 +571,7 @@ func (n *Network) StartListener() {
 	}()
 }
 
-func (n *Network) Register() error {
-	nickname := n.getNickname()
-
+func (n *Network) Register(nickname, realname string) error {
 	nickMsg := nickMessage{
 		nickname: nickname,
 	}
@@ -572,7 +580,7 @@ func (n *Network) Register() error {
 	}
 
 	userMsg := userMessage{
-		realname: n.realname,
+		realname: realname,
 	}
 	if currUser, err := user.Current(); err == nil {
 		userMsg.user = currUser.Username
@@ -584,6 +592,10 @@ func (n *Network) Register() error {
 	}
 
 	return nil
+}
+
+func (n *Network) IsRegistered() bool {
+	return n.registered.Load()
 }
 
 func (n *Network) GetNickname() string {
@@ -648,10 +660,8 @@ func (n *Network) Quit(message string) error {
 	return nil
 }
 
-func NewNetwork(conn Connection, nickname, realname string) *Network {
+func NewNetwork(conn Connection) *Network {
 	return &Network{
-		realname:      realname,
-		nickname:      nickname,
 		conn:          conn,
 		channels:      map[string]*NetworkChannel{},
 		usersChannels: map[string]map[string]*NetworkChannel{},
