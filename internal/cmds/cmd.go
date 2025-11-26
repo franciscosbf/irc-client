@@ -1,16 +1,39 @@
 package cmds
 
-type Type string
+type Type int
+
+func (t Type) toString() string {
+	switch t {
+	case Help:
+		return "help"
+	case Connect:
+		return "connect"
+	case Disconnect:
+		return "disconnect"
+	case Join:
+		return "join"
+	case Part:
+		return "part"
+	case Nick:
+		return "nick"
+	case Quit:
+		return "quit"
+	case Msg:
+		fallthrough
+	default:
+		return ""
+	}
+}
 
 const (
-	Help       Type = "help"
-	Connect    Type = "connect"
-	Disconnect Type = "disconnect"
-	Join       Type = "join"
-	Part       Type = "part"
-	Nick       Type = "nick"
-	Quit       Type = "quit"
-	Msg        Type = "msg"
+	Help Type = iota
+	Connect
+	Disconnect
+	Join
+	Part
+	Nick
+	Quit
+	Msg
 )
 
 type Cmd interface {

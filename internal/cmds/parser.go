@@ -17,7 +17,7 @@ type InvalidCmdErr struct {
 var specialChs = []rune{'[', ']', '\\', '`', '_', '^', '{', '|', '}'}
 
 func (e InvalidCmdErr) Error() string {
-	return fmt.Sprintf("Mistyped command %s: %s", e.CmdType, e.Reason)
+	return fmt.Sprintf("Mistyped command %s: %s", e.CmdType.toString(), e.Reason)
 }
 
 func cut(input string) (string, string) {
@@ -87,8 +87,8 @@ func Parse(input string) (Cmd, error) {
 	}
 
 	cmdType, args := cut(input[1:])
-	switch Type(cmdType) {
-	case Help:
+	switch cmdType {
+	case Help.toString():
 		if args != "" {
 			return nil, InvalidCmdErr{
 				CmdType: Help,
@@ -96,7 +96,7 @@ func Parse(input string) (Cmd, error) {
 			}
 		}
 		return HelpCmd{}, nil
-	case Connect:
+	case Connect.toString():
 		args := splitNArgs(args, 3)
 		if len(args) < 3 {
 			return nil, InvalidCmdErr{
@@ -138,7 +138,7 @@ func Parse(input string) (Cmd, error) {
 			Nickname: nickname,
 			Name:     name,
 		}, nil
-	case Disconnect:
+	case Disconnect.toString():
 		if args != "" {
 			return nil, InvalidCmdErr{
 				CmdType: Disconnect,
@@ -146,31 +146,39 @@ func Parse(input string) (Cmd, error) {
 			}
 		}
 		return DisconnectCmd{}, nil
-	case Join, Part:
-		var cmd Cmd
-		if Type(cmdType) == Join {
-			cmd = JoinCmd{
-				Tag: args,
-			}
-		} else {
-			cmd = PartCmd{
-				Tag: args,
-			}
-		}
+	case Join.toString(), Part.toString():
 		if args == "" {
 			return nil, InvalidCmdErr{
-				CmdType: cmd.GetType(),
+				CmdType: Join,
 				Reason:  "expecting argument <channel>",
 			}
 		}
 		if !isChannelTagValid(args) {
 			return nil, InvalidCmdErr{
-				CmdType: cmd.GetType(),
+				CmdType: Join,
 				Reason:  "invalid channel",
 			}
 		}
-		return cmd, nil
-	case Nick:
+		return JoinCmd{
+			Tag: args,
+		}, nil
+	case Part.toString():
+		if args == "" {
+			return nil, InvalidCmdErr{
+				CmdType: Part,
+				Reason:  "expecting argument <channel>",
+			}
+		}
+		if !isChannelTagValid(args) {
+			return nil, InvalidCmdErr{
+				CmdType: Part,
+				Reason:  "invalid channel",
+			}
+		}
+		return PartCmd{
+			Tag: args,
+		}, nil
+	case Nick.toString():
 		if args == "" {
 			return nil, InvalidCmdErr{
 				CmdType: Nick,
@@ -187,7 +195,7 @@ func Parse(input string) (Cmd, error) {
 		return NickCmd{
 			Nickname: nickname,
 		}, nil
-	case Quit:
+	case Quit.toString():
 		if args != "" {
 			return nil, InvalidCmdErr{
 				CmdType: Quit,

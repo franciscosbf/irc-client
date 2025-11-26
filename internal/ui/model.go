@@ -287,7 +287,7 @@ func (m *model) interpretUserInput() (teaCmd tea.Cmd, exit bool) {
 		teaCmd = m.onConnectCmd(cmd)
 	default:
 		if m.network == nil {
-			if _, ok := cmd.(cmds.MsgCmd); !ok {
+			if cmd.GetType() != cmds.Msg {
 				m.addAppMsg("No current network")
 			}
 			break
@@ -299,7 +299,7 @@ func (m *model) interpretUserInput() (teaCmd tea.Cmd, exit bool) {
 			m.onNickCmd(cmd)
 		default:
 			if !m.network.IsRegistered() {
-				if _, ok := cmd.(cmds.MsgCmd); !ok {
+				if cmd.GetType() != cmds.Msg {
 					m.addAppMsg("Wait until user registration is complete")
 				}
 				break
@@ -313,6 +313,10 @@ func (m *model) interpretUserInput() (teaCmd tea.Cmd, exit bool) {
 				m.onMsgCmd(cmd)
 			}
 		}
+	}
+
+	if cmd.GetType() != cmds.Msg {
+		m.prompt.AddLastInputToHistory()
 	}
 
 	return
