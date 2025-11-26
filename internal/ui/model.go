@@ -147,39 +147,143 @@ func (m *model) goToNextChat() {
 	m.chatsList.SetSelectedChat(m.activeChat)
 }
 
+func (m *model) onHelpCmd(cmd cmds.HelpCmd) {
+	m.addAppMsg(cmd.HelpMsg())
+}
+
+func (m *model) onQuitCmd() {
+	m.quitCurrentNetwork()
+}
+
+func (m *model) onConnectCmd(cmd cmds.ConnectCmd) tea.Cmd {
+	if m.network != nil {
+		m.addAppMsg("You must first disconnect from the current network")
+		return nil
+	}
+
+	conn, err := irc.DialNetworkConnection(cmd.Host, cmd.Port)
+	if err != nil {
+		m.addAppMsg("Failed to dial connection")
+		return nil
+	}
+
+	network := irc.NewNetwork(conn)
+	network.StartListener()
+	if err := network.Register(cmd.Nickname, cmd.Name); err != nil {
+		m.addAppMsg("Failed to send connection registration")
+		return nil
+	}
+
+	m.network = network
+	m.sliding.SetText("Connected to network " + cmd.Host)
+
+	return networkMsgCmd(network)
+}
+
+func (m *model) onDisconnectCmd() {
+	m.disconnectFromNetwork()
+
+	m.sliding.SetText(notConnectedSlidingText)
+}
+
+func (m *model) onNickCmd(cmd cmds.NickCmd) {
+	if err := m.network.ChangeNickname(cmd.Nickname); err != nil {
+		m.addAppMsg("Failed to request chaning nickname to " + cmd.Nickname)
+	}
+}
+
+func (m *model) onJoinCmd(cmd cmds.JoinCmd) tea.Cmd {
+	if _, ok := m.modeledChannels[cmd.Tag]; ok {
+		m.addAppMsg("Already in channel " + cmd.Tag)
+	} else if channel, err := m.network.JoinChannel(cmd.Tag); err == nil {
+		prevActiveChat := m.chats[m.activeChat]
+
+		m.setActiveChat(len(m.chats))
+
+		m.chats = append(m.chats, chat.InitialModel(cmd.Tag))
+
+		m.modeledChannels[cmd.Tag] = modeledChannel{
+			index:   m.activeChat,
+			channel: channel,
+		}
+
+		m.chats[m.activeChat].SetSize(prevActiveChat.GetWidth(), prevActiveChat.GetHeight())
+		m.chatsList.SetChats(m.chats)
+		m.chatsList.SetSelectedChat(m.activeChat)
+
+		return channelMsgCmd(m.network, channel)
+
+	} else {
+		m.addAppMsg("Failed to join channel " + cmd.Tag)
+	}
+
+	return nil
+}
+
+func (m *model) onPartCmd(cmd cmds.PartCmd) {
+	if chatChannel, ok := m.modeledChannels[cmd.Tag]; ok {
+		delete(m.modeledChannels, chatChannel.channel.GetTag())
+
+		m.chats = append(m.chats[:chatChannel.index], m.chats[chatChannel.index+1:]...)
+		m.chatsList.SetChats(m.chats)
+
+		if m.activeChat >= chatChannel.index {
+			for i := m.activeChat; i < len(m.chats); i++ {
+				modeledChannel := m.modeledChannels[m.chats[i].GetTag()]
+				modeledChannel.index--
+				m.modeledChannels[m.chats[i].GetTag()] = modeledChannel
+			}
+			m.setActiveChat(m.activeChat - 1)
+		}
+		m.chatsList.SetSelectedChat(m.activeChat)
+
+		if err := chatChannel.channel.Part(); err == nil {
+		} else {
+			m.addAppMsg("Failed to part channel " + cmd.Tag)
+		}
+
+		return
+	}
+
+	m.addAppMsg("Not in channel " + cmd.Tag)
+}
+
+func (m *model) onMsgCmd(cmd cmds.MsgCmd) {
+	if m.activeChat == networkChatIndex {
+		return
+	}
+
+	modeledChannel := m.modeledChannels[m.chats[m.activeChat].GetTag()]
+	if err := modeledChannel.channel.SendMessage(cmd.MsgContent); err == nil {
+		m.addChannelMsg(m.activeChat, irc.ChannelMessage{
+			Sender:  m.network.GetNickname(),
+			Content: cmd.MsgContent,
+		})
+		return
+	}
+
+	m.addAppMsg("Failed to send message to channel " + modeledChannel.channel.GetTag())
+}
+
 func (m *model) interpretUserInput() (teaCmd tea.Cmd, exit bool) {
 	input := m.prompt.GetInput()
+
 	m.prompt.ResetContent()
+
 	cmd, err := cmds.Parse(input)
 	if err != nil {
 		m.addAppMsg(err.Error())
 		return
 	}
+
 	switch cmd := cmd.(type) {
 	case cmds.HelpCmd:
-		m.addAppMsg(cmd.HelpMsg())
+		m.onHelpCmd(cmd)
 	case cmds.QuitCmd:
-		m.quitCurrentNetwork()
+		m.onQuitCmd()
 		exit = true
 	case cmds.ConnectCmd:
-		if m.network != nil {
-			m.addAppMsg("You must first disconnect from the current network")
-			break
-		}
-		conn, err := irc.DialNetworkConnection(cmd.Host, cmd.Port)
-		if err != nil {
-			m.addAppMsg("Failed to dial connection")
-			break
-		}
-		network := irc.NewNetwork(conn)
-		network.StartListener()
-		if err := network.Register(cmd.Nickname, cmd.Name); err != nil {
-			m.addAppMsg("Failed to send connection registration")
-			break
-		}
-		m.network = network
-		m.sliding.SetText("Connected to network " + cmd.Host)
-		teaCmd = networkMsgCmd(network)
+		teaCmd = m.onConnectCmd(cmd)
 	default:
 		if m.network == nil {
 			m.addAppMsg("No current network")
@@ -187,12 +291,9 @@ func (m *model) interpretUserInput() (teaCmd tea.Cmd, exit bool) {
 		}
 		switch cmd := cmd.(type) {
 		case cmds.DisconnectCmd:
-			m.disconnectFromNetwork()
-			m.sliding.SetText(notConnectedSlidingText)
+			m.onDisconnectCmd()
 		case cmds.NickCmd:
-			if err := m.network.ChangeNickname(cmd.Nickname); err != nil {
-				m.addAppMsg("Failed to request chaning nickname to " + cmd.Nickname)
-			}
+			m.onNickCmd(cmd)
 		default:
 			if !m.network.IsRegistered() {
 				if _, ok := cmd.(cmds.MsgCmd); !ok {
@@ -202,60 +303,15 @@ func (m *model) interpretUserInput() (teaCmd tea.Cmd, exit bool) {
 			}
 			switch cmd := cmd.(type) {
 			case cmds.JoinCmd:
-				if _, ok := m.modeledChannels[cmd.Tag]; ok {
-					m.addAppMsg("Already in channel " + cmd.Tag)
-				} else if channel, err := m.network.JoinChannel(cmd.Tag); err == nil {
-					prevActiveChat := m.chats[m.activeChat]
-					m.setActiveChat(len(m.chats))
-					m.chats = append(m.chats, chat.InitialModel(cmd.Tag))
-					m.modeledChannels[cmd.Tag] = modeledChannel{
-						index:   m.activeChat,
-						channel: channel,
-					}
-					m.chats[m.activeChat].SetSize(prevActiveChat.GetWidth(), prevActiveChat.GetHeight())
-					m.chatsList.SetChats(m.chats)
-					m.chatsList.SetSelectedChat(m.activeChat)
-					teaCmd = channelMsgCmd(m.network, channel)
-				} else {
-					m.addAppMsg("Failed to join channel " + cmd.Tag)
-				}
+				teaCmd = m.onJoinCmd(cmd)
 			case cmds.PartCmd:
-				if chatChannel, ok := m.modeledChannels[cmd.Tag]; ok {
-					delete(m.modeledChannels, chatChannel.channel.GetTag())
-					m.chats = append(m.chats[:chatChannel.index], m.chats[chatChannel.index+1:]...)
-					m.chatsList.SetChats(m.chats)
-					if m.activeChat >= chatChannel.index {
-						for i := m.activeChat; i < len(m.chats); i++ {
-							modeledChannel := m.modeledChannels[m.chats[i].GetTag()]
-							modeledChannel.index--
-							m.modeledChannels[m.chats[i].GetTag()] = modeledChannel
-						}
-						m.setActiveChat(m.activeChat - 1)
-					}
-					m.chatsList.SetSelectedChat(m.activeChat)
-					if err := chatChannel.channel.Part(); err == nil {
-					} else {
-						m.addAppMsg("Failed to part channel " + cmd.Tag)
-					}
-				} else {
-					m.addAppMsg("Not in channel " + cmd.Tag)
-				}
+				m.onPartCmd(cmd)
 			case cmds.MsgCmd:
-				if m.activeChat == networkChatIndex {
-					break
-				}
-				modeledChannel := m.modeledChannels[m.chats[m.activeChat].GetTag()]
-				if err := modeledChannel.channel.SendMessage(cmd.MsgContent); err == nil {
-					m.addChannelMsg(m.activeChat, irc.ChannelMessage{
-						Sender:  m.network.GetNickname(),
-						Content: cmd.MsgContent,
-					})
-				} else {
-					m.addAppMsg("Failed to send message to channel " + modeledChannel.channel.GetTag())
-				}
+				m.onMsgCmd(cmd)
 			}
 		}
 	}
+
 	return
 }
 
@@ -263,13 +319,19 @@ func (m *model) interpretNetworkMsg(msg networkMsg) tea.Cmd {
 	if m.network != msg.network {
 		return nil
 	}
+
 	if !msg.isOpen {
 		m.addAppMsg("Disconnected from the network " + msg.network.GetHost())
+
 		m.resetChats()
+
 		m.sliding.SetText(notConnectedSlidingText)
+
 		return nil
 	}
+
 	m.addNetworkMsg(msg.msg)
+
 	return networkMsgCmd(m.network)
 }
 
@@ -277,17 +339,23 @@ func (m *model) interpretChannelMsg(msg channelMsg) tea.Cmd {
 	if m.network != msg.network {
 		return nil
 	}
+
 	chatChannel, ok := m.modeledChannels[msg.channel.GetTag()]
+
 	if !ok || !msg.isOpen {
 		return nil
 	}
+
 	m.addChannelMsg(chatChannel.index, msg.msg)
+
 	return channelMsgCmd(m.network, chatChannel.channel)
 }
 
 func (m *model) resetChats() {
 	m.setActiveChat(networkChatIndex)
+
 	m.chats = m.chats[:1]
+
 	m.chatsList.SetChats(m.chats)
 	m.chatsList.SetSelectedChat(m.activeChat)
 }
