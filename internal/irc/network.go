@@ -24,14 +24,20 @@ const (
 )
 
 type Connection interface {
+	getHost() string
 	read() ([]byte, bool, error)
 	write(b []byte) error
 	close()
 }
 
 type NetworkConnection struct {
+	host   string
 	conn   net.Conn
 	reader *bufio.Reader
+}
+
+func (nc *NetworkConnection) getHost() string {
+	return nc.host
 }
 
 func (nc *NetworkConnection) read() ([]byte, bool, error) {
@@ -71,6 +77,7 @@ func DialNetworkConnection(host string, port uint16) (*NetworkConnection, error)
 	}
 
 	return &NetworkConnection{
+		host:   host,
 		conn:   conn,
 		reader: bufio.NewReaderSize(conn, readerBufSize),
 	}, nil
@@ -335,6 +342,10 @@ func (n *Network) fetchMessage() (message, error) {
 	}
 
 	return decodeMessage(raw), nil
+}
+
+func (n *Network) GetHost() string {
+	return n.conn.getHost()
 }
 
 func (n *Network) StartListener() {
