@@ -266,9 +266,10 @@ func (m *model) onMsgCmd(cmd cmds.MsgCmd) {
 }
 
 func (m *model) interpretUserInput() (teaCmd tea.Cmd, exit bool) {
-	input := m.prompt.GetInput()
-
-	m.prompt.ResetContent()
+	input := m.prompt.GetInputAndResetIt()
+	if input == "" {
+		return
+	}
 
 	cmd, err := cmds.Parse(input)
 	if err != nil {

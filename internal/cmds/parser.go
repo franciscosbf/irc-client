@@ -20,10 +20,6 @@ func (e InvalidCmdErr) Error() string {
 	return fmt.Sprintf("Mistyped command %s: %s", e.CmdType, e.Reason)
 }
 
-func trimRight(input string) string {
-	return strings.TrimRight(input, " \t")
-}
-
 func cut(input string) (string, string) {
 	before, after, _ := strings.Cut(input, " ")
 	return before, after
@@ -84,8 +80,6 @@ func isChannelTagValid(channel string) bool {
 }
 
 func Parse(input string) (Cmd, error) {
-	input = trimRight(input)
-
 	if !strings.HasPrefix(input, "/") {
 		return MsgCmd{
 			MsgContent: input,
