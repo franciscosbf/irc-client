@@ -287,7 +287,9 @@ func (m *model) interpretUserInput() (teaCmd tea.Cmd, exit bool) {
 		teaCmd = m.onConnectCmd(cmd)
 	default:
 		if m.network == nil {
-			m.addAppMsg("No current network")
+			if _, ok := cmd.(cmds.MsgCmd); !ok {
+				m.addAppMsg("No current network")
+			}
 			break
 		}
 		switch cmd := cmd.(type) {
