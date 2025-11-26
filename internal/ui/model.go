@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	quitMsg         = "C'est la vie"
-	slidingInterval = 250 * time.Millisecond
-	networkChat     = 0
+	quitMsg          = "C'est la vie"
+	slidingInterval  = 250 * time.Millisecond
+	networkChatIndex = 0
 )
 
 var notConnectedSlidingText = "Not connected"
@@ -99,13 +99,23 @@ func (m *model) setActiveChat(index int) {
 }
 
 func (m *model) toggleActiveChatWithNetworkChat() {
-	if m.activeChat == networkChat {
+	if m.activeChat == networkChatIndex {
 		m.activeChat = m.prevActiveChat
 	} else {
 		m.prevActiveChat = m.activeChat
-		m.activeChat = networkChat
+		m.activeChat = networkChatIndex
 	}
 	m.chatsList.SetSelectedChat(m.activeChat)
+}
+
+func (m *model) disconnectFromNetwork() bool {
+	host, disconnected := m.quitCurrentNetwork()
+
+	if disconnected {
+		m.addAppMsg("Disconnected from the network " + host)
+	}
+
+	return disconnected
 }
 
 func (m *model) addaptToWindowSize(width, height int) {
@@ -152,8 +162,9 @@ func (m *model) interpretUserInput() (teaCmd tea.Cmd, exit bool) {
 		m.quitCurrentNetwork()
 		exit = true
 	case cmds.ConnectCmd:
-		if host, disconnected := m.quitCurrentNetwork(); disconnected {
-			m.addAppMsg("Disconnected from the network " + host)
+		if m.network != nil {
+			m.addAppMsg("You must first disconnect from the current network")
+			break
 		}
 		conn, err := irc.DialNetworkConnection(cmd.Host, cmd.Port)
 		if err != nil {
@@ -176,9 +187,7 @@ func (m *model) interpretUserInput() (teaCmd tea.Cmd, exit bool) {
 		}
 		switch cmd := cmd.(type) {
 		case cmds.DisconnectCmd:
-			if host, disconnected := m.quitCurrentNetwork(); disconnected {
-				m.addAppMsg("Disconnected from the network " + host)
-			}
+			m.disconnectFromNetwork()
 			m.sliding.SetText(notConnectedSlidingText)
 		case cmds.NickCmd:
 			if err := m.network.ChangeNickname(cmd.Nickname); err != nil {
@@ -187,7 +196,7 @@ func (m *model) interpretUserInput() (teaCmd tea.Cmd, exit bool) {
 		default:
 			if !m.network.IsRegistered() {
 				if _, ok := cmd.(cmds.MsgCmd); !ok {
-					m.addAppMsg("Server is still registering user")
+					m.addAppMsg("Wait until user registration is complete")
 				}
 				break
 			}
@@ -232,7 +241,7 @@ func (m *model) interpretUserInput() (teaCmd tea.Cmd, exit bool) {
 					m.addAppMsg("Not in channel " + cmd.Tag)
 				}
 			case cmds.MsgCmd:
-				if m.activeChat == networkChat {
+				if m.activeChat == networkChatIndex {
 					break
 				}
 				modeledChannel := m.modeledChannels[m.chats[m.activeChat].GetTag()]
@@ -277,15 +286,15 @@ func (m *model) interpretChannelMsg(msg channelMsg) tea.Cmd {
 }
 
 func (m *model) resetChats() {
-	m.setActiveChat(networkChat)
+	m.setActiveChat(networkChatIndex)
 	m.chats = m.chats[:1]
 	m.chatsList.SetChats(m.chats)
 	m.chatsList.SetSelectedChat(m.activeChat)
 }
 
 func (m *model) addAppMsg(msg string) {
-	m.chats[networkChat].AddMsg(appMsgStyle.Render(msg))
-	m.chats[networkChat].GoToBottom()
+	m.chats[networkChatIndex].AddMsg(appMsgStyle.Render(msg))
+	m.chats[networkChatIndex].GoToBottom()
 }
 
 func (m *model) goToBottomIfNotActiveChat(index int) {
@@ -297,9 +306,9 @@ func (m *model) goToBottomIfNotActiveChat(index int) {
 }
 
 func (m *model) addNetworkMsg(msg irc.NetworkMessage) {
-	m.chats[networkChat].AddMsg(msg.Content)
+	m.chats[networkChatIndex].AddMsg(msg.Content)
 
-	m.goToBottomIfNotActiveChat(networkChat)
+	m.goToBottomIfNotActiveChat(networkChatIndex)
 }
 
 func (m *model) addChannelMsg(index int, msg irc.ChannelMessage) {
@@ -316,11 +325,11 @@ func (m *model) addChannelMsg(index int, msg irc.ChannelMessage) {
 
 func (m *model) quitCurrentNetwork() (string, bool) {
 	if m.network == nil {
-		return "", false
+		return "", true
 	}
 
 	if err := m.network.Quit(quitMsg); err != nil {
-		log.Printf("Got error when quitting network: %v\n", err)
+		log.Printf("Error when quitting network: %v\n", err)
 	}
 
 	m.resetChats()
@@ -431,7 +440,7 @@ func initialModel() model {
 	m := model{}
 
 	m.modeledChannels = map[string]modeledChannel{}
-	m.activeChat = networkChat
+	m.activeChat = networkChatIndex
 	m.chats = []chat.Model{chat.InitialModel("network")}
 	m.chatsList = chatslist.InitialModel()
 	m.chatsList.SetChats(m.chats)
