@@ -44,6 +44,14 @@ func (m *Model) ScrollOneLineDown() {
 	m.viewport.ScrollDown(1)
 }
 
+func (m *Model) ScrollOneColumnLeft() {
+	m.viewport.ScrollLeft(1)
+}
+
+func (m *Model) ScrollOneColumnRight() {
+	m.viewport.ScrollRight(1)
+}
+
 func (m *Model) WheelScrollUp() {
 	m.viewport.ScrollUp(m.viewport.MouseWheelDelta)
 }

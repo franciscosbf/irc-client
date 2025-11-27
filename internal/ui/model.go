@@ -465,10 +465,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addaptToWindowSize(msg.Width, msg.Height)
 	case tea.KeyMsg:
 		switch msg.String() {
+		case "alt+h":
+			m.chats[m.activeChatIndex].ScrollOneColumnLeft()
 		case "alt+j":
 			m.chats[m.activeChatIndex].ScrollOneLineDown()
 		case "alt+k":
 			m.chats[m.activeChatIndex].ScrollOneLineUp()
+		case "alt+l":
+			m.chats[m.activeChatIndex].ScrollOneColumnRight()
 		case "alt+b":
 			m.chats[m.activeChatIndex].GoToBottom()
 		case "alt+p":

@@ -11,7 +11,7 @@ import (
 const maxPromptInput = 300
 
 var suppressedKeys = key.NewBinding(key.WithKeys(
-	"alt+j", "alt+k", "alt+b", "alt+n", "alt+p", "alt+t",
+	"alt+h", "alt+j", "alt+k", "alt+l", "alt+b", "alt+n", "alt+p", "alt+t",
 ))
 
 func trimRight(input string) string {
