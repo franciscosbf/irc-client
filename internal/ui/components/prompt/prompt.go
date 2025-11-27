@@ -23,11 +23,10 @@ func Blink() tea.Cmd {
 }
 
 type Model struct {
-	lastInput      string
-	history        []string
-	historyMatches map[string]struct{}
-	historyPos     int
-	input          textinput.Model
+	lastInput  string
+	history    []string
+	historyPos int
+	input      textinput.Model
 }
 
 func (m *Model) SetWidth(width int) {
@@ -49,13 +48,8 @@ func (m *Model) GetInputAndResetIt() string {
 }
 
 func (m *Model) AddLastInputToHistory() {
-	if _, ok := m.historyMatches[m.lastInput]; ok {
-		return
-	}
-
 	m.history = append(m.history, m.lastInput)
 	m.historyPos = len(m.history)
-	m.historyMatches[m.lastInput] = struct{}{}
 }
 
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
@@ -100,7 +94,6 @@ func (m Model) View() string {
 func InitialModel() Model {
 	m := Model{}
 
-	m.historyMatches = map[string]struct{}{}
 	m.historyPos = -1
 	m.input = textinput.New()
 	m.input.Focus()
