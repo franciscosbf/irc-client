@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"log"
 	"time"
 
@@ -94,7 +95,7 @@ func channelMsgCmd(network *irc.Network, channel *irc.NetworkChannel) tea.Cmd {
 
 func connectionMsgCmd(cmd cmds.ConnectCmd) tea.Cmd {
 	return func() tea.Msg {
-		conn, err := irc.DialNetworkConnection(cmd.Host, cmd.Port)
+		conn, err := irc.DialNetworkConnection(cmd.Host)
 		return connectionMsg{
 			cmd:  cmd,
 			conn: conn,
@@ -510,8 +511,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case connectionMsg:
 		m.connDialup.unregister()
 		if msg.err != nil {
-			m.addAppMsg("Failed to dial connection")
+			m.addAppMsg("Failed to dial connection to " + msg.cmd.Host)
 			break
+		}
+		if !msg.conn.IsSecure() {
+			m.addAppMsg(fmt.Sprintf("Connection to %s isn't secure (plain text). Caution is advised", msg.cmd.Host))
 		}
 		network := irc.NewNetwork(msg.conn)
 		network.StartListener()

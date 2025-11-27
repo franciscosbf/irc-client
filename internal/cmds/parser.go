@@ -2,9 +2,7 @@ package cmds
 
 import (
 	"fmt"
-	"net"
 	"slices"
-	"strconv"
 	"strings"
 	"unicode"
 )
@@ -104,20 +102,7 @@ func Parse(input string) (Cmd, error) {
 				Reason:  "expecting arguments <address> <nickname> <name>",
 			}
 		}
-		host, rawPort, err := net.SplitHostPort(args[0])
-		if err != nil {
-			return nil, InvalidCmdErr{
-				CmdType: Connect,
-				Reason:  "invalid address argument",
-			}
-		}
-		port, err := strconv.ParseUint(rawPort, 10, 16)
-		if err != nil {
-			return nil, InvalidCmdErr{
-				CmdType: Connect,
-				Reason:  "invalid address port",
-			}
-		}
+		host := args[0]
 		if !isNicknameValid(args[1]) {
 			return nil, InvalidCmdErr{
 				CmdType: Connect,
@@ -134,7 +119,6 @@ func Parse(input string) (Cmd, error) {
 		name := args[2]
 		return ConnectCmd{
 			Host:     host,
-			Port:     uint16(port),
 			Nickname: nickname,
 			Name:     name,
 		}, nil

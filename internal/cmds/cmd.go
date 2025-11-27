@@ -42,7 +42,6 @@ type Cmd interface {
 
 type ConnectCmd struct {
 	Host           string
-	Port           uint16
 	Nickname, Name string
 }
 
@@ -102,12 +101,12 @@ func (HelpCmd) GetType() Type {
 
 func (HelpCmd) HelpMsg() string {
 	return `Available commands:
-/help                                Shows this message
-/connect <address> <nickname> <name> Connects to a network (address -> host:port)
-/disconnect                          Disconnects from a network
-/join <channel>                      Connects to a channel in the network
-/part <channel>                      Disconnects from a channel in the network
-/nick <nickname>                     Changes your nickname in the network
-/quit                                Closes the IRC Client
-<bunch of text>                      Sends a message in the current channel`
+/help                              Shows this message
+/connect <host> <nickname> <name>  Connects to a network
+/disconnect                        Disconnects from a network
+/join <channel>                    Connects to a channel in the network
+/part <channel>                    Disconnects from a channel in the network
+/nick <nickname>                   Changes your nickname in the network
+/quit                              Closes the IRC Client
+<bunch of text>                    Sends a message in the current channel`
 }

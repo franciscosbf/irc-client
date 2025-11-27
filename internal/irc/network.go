@@ -9,7 +9,6 @@ import (
 	"log"
 	"net"
 	"os/user"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,10 +16,11 @@ import (
 )
 
 const (
-	networkTlsPort        = 6697
+	networkPort           = "6667"
+	networkTlsPort        = "6697"
 	readerBufSize         = 520
 	messagesBufSize       = 32
-	dialConnectionTimeout = time.Second * 8
+	dialConnectionTimeout = time.Second * 4
 )
 
 type Connection interface {
@@ -31,9 +31,14 @@ type Connection interface {
 }
 
 type NetworkConnection struct {
+	secure bool
 	host   string
 	conn   net.Conn
 	reader *bufio.Reader
+}
+
+func (nc *NetworkConnection) IsSecure() bool {
+	return nc.secure
 }
 
 func (nc *NetworkConnection) getHost() string {
@@ -54,29 +59,31 @@ func (nc *NetworkConnection) close() {
 	_ = nc.conn.Close()
 }
 
-func DialNetworkConnection(host string, port uint16) (*NetworkConnection, error) {
-	addr := net.JoinHostPort(host, strconv.Itoa(int(port)))
-
+func DialNetworkConnection(host string) (*NetworkConnection, error) {
 	var (
-		conn net.Conn
-		err  error
+		secure bool
+		conn   net.Conn
+		err    error
 	)
+
 	netDialer := net.Dialer{
 		Timeout: dialConnectionTimeout,
 	}
-	if port == networkTlsPort {
-		tlsDialer := tls.Dialer{
-			NetDialer: &netDialer,
-		}
-		conn, err = tlsDialer.Dial("tcp4", addr)
-	} else {
-		conn, err = netDialer.Dial("tcp4", addr)
+	tlsDialer := tls.Dialer{
+		NetDialer: &netDialer,
 	}
-	if err != nil {
-		return nil, err
+	tlsAddr := net.JoinHostPort(host, networkTlsPort)
+	if conn, err = tlsDialer.Dial("tcp4", tlsAddr); err != nil {
+		addr := net.JoinHostPort(host, networkPort)
+		if conn, err = netDialer.Dial("tcp4", addr); err != nil {
+			return nil, err
+		}
+	} else {
+		secure = true
 	}
 
 	return &NetworkConnection{
+		secure: secure,
 		host:   host,
 		conn:   conn,
 		reader: bufio.NewReaderSize(conn, readerBufSize),
