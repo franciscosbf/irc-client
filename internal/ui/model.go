@@ -18,6 +18,7 @@ const (
 	quitMsg          = "C'est la vie"
 	slidingInterval  = 250 * time.Millisecond
 	networkChatIndex = 0
+	timeFormat       = "15:04"
 )
 
 var notConnectedSlidingText = "Not connected"
@@ -40,6 +41,14 @@ var appMsgStyle = lipgloss.NewStyle().
 var nickNameStyle = lipgloss.NewStyle().
 	Bold(true).
 	Foreground(lipgloss.AdaptiveColor{Light: "#1a1a1a", Dark: "#dddddd"})
+
+var timeStyle = lipgloss.NewStyle().
+	Bold(true).
+	Foreground(lipgloss.AdaptiveColor{Light: "#3c3c3c", Dark: "#a8a8a8"})
+
+func currentTime() string {
+	return time.Now().Format(timeFormat)
+}
 
 type networkMsg struct {
 	network *irc.Network
@@ -122,24 +131,24 @@ type model struct {
 	chatsList       chatslist.Model
 	chats           []chat.Model
 	prevActiveChat  int
-	activeChat      int
+	activeChatIndex int
 	prompt          prompt.Model
 	sliding         textsliding.Model
 }
 
 func (m *model) setActiveChat(index int) {
-	m.activeChat = index
-	m.prevActiveChat = m.activeChat
+	m.activeChatIndex = index
+	m.prevActiveChat = m.activeChatIndex
 }
 
 func (m *model) toggleActiveChatWithNetworkChat() {
-	if m.activeChat == networkChatIndex {
-		m.activeChat = m.prevActiveChat
+	if m.activeChatIndex == networkChatIndex {
+		m.activeChatIndex = m.prevActiveChat
 	} else {
-		m.prevActiveChat = m.activeChat
-		m.activeChat = networkChatIndex
+		m.prevActiveChat = m.activeChatIndex
+		m.activeChatIndex = networkChatIndex
 	}
-	m.chatsList.SetSelectedChat(m.activeChat)
+	m.chatsList.SetSelectedChat(m.activeChatIndex)
 }
 
 func (m *model) disconnectFromNetwork() bool {
@@ -164,21 +173,21 @@ func (m *model) addaptToWindowSize(width, height int) {
 	}
 	m.chatsList.SetSize(mod(leftSlice-2), mod(height-3))
 	m.sliding.SetWidth(mod(leftSlice - 3))
-	m.chats[m.activeChat].SetSize(mod(rightSlice-2), mod(height-3))
+	m.chats[m.activeChatIndex].SetSize(mod(rightSlice-2), mod(height-3))
 	m.prompt.SetWidth(rightSlice)
-	if m.chats[m.activeChat].PastBottom() {
-		m.chats[m.activeChat].GoToBottom()
+	if m.chats[m.activeChatIndex].PastBottom() {
+		m.chats[m.activeChatIndex].GoToBottom()
 	}
 }
 
 func (m *model) goToPreviousChat() {
-	m.setActiveChat(max(0, m.activeChat-1))
-	m.chatsList.SetSelectedChat(m.activeChat)
+	m.setActiveChat(max(0, m.activeChatIndex-1))
+	m.chatsList.SetSelectedChat(m.activeChatIndex)
 }
 
 func (m *model) goToNextChat() {
-	m.setActiveChat(min(len(m.chats)-1, m.activeChat+1))
-	m.chatsList.SetSelectedChat(m.activeChat)
+	m.setActiveChat(min(len(m.chats)-1, m.activeChatIndex+1))
+	m.chatsList.SetSelectedChat(m.activeChatIndex)
 }
 
 func (m *model) onHelpCmd(cmd cmds.HelpCmd) {
@@ -216,20 +225,20 @@ func (m *model) onJoinCmd(cmd cmds.JoinCmd) tea.Cmd {
 	if _, ok := m.modeledChannels[cmd.Tag]; ok {
 		m.addAppMsg("Already in channel " + cmd.Tag)
 	} else if channel, err := m.network.JoinChannel(cmd.Tag); err == nil {
-		prevActiveChat := m.chats[m.activeChat]
+		prevActiveChat := m.chats[m.activeChatIndex]
 
 		m.setActiveChat(len(m.chats))
 
 		m.chats = append(m.chats, chat.InitialModel(cmd.Tag))
 
 		m.modeledChannels[cmd.Tag] = modeledChannel{
-			index:   m.activeChat,
+			index:   m.activeChatIndex,
 			channel: channel,
 		}
 
-		m.chats[m.activeChat].SetSize(prevActiveChat.GetWidth(), prevActiveChat.GetHeight())
+		m.chats[m.activeChatIndex].SetSize(prevActiveChat.GetWidth(), prevActiveChat.GetHeight())
 		m.chatsList.SetChats(m.chats)
-		m.chatsList.SetSelectedChat(m.activeChat)
+		m.chatsList.SetSelectedChat(m.activeChatIndex)
 
 		return channelMsgCmd(m.network, channel)
 
@@ -247,15 +256,15 @@ func (m *model) onPartCmd(cmd cmds.PartCmd) {
 		m.chats = append(m.chats[:chatChannel.index], m.chats[chatChannel.index+1:]...)
 		m.chatsList.SetChats(m.chats)
 
-		if m.activeChat >= chatChannel.index {
-			for i := m.activeChat; i < len(m.chats); i++ {
+		if m.activeChatIndex >= chatChannel.index {
+			for i := m.activeChatIndex; i < len(m.chats); i++ {
 				modeledChannel := m.modeledChannels[m.chats[i].GetTag()]
 				modeledChannel.index--
 				m.modeledChannels[m.chats[i].GetTag()] = modeledChannel
 			}
-			m.setActiveChat(m.activeChat - 1)
+			m.setActiveChat(m.activeChatIndex - 1)
 		}
-		m.chatsList.SetSelectedChat(m.activeChat)
+		m.chatsList.SetSelectedChat(m.activeChatIndex)
 
 		if err := chatChannel.channel.Part(); err == nil {
 		} else {
@@ -269,13 +278,13 @@ func (m *model) onPartCmd(cmd cmds.PartCmd) {
 }
 
 func (m *model) onMsgCmd(cmd cmds.MsgCmd) {
-	if m.activeChat == networkChatIndex {
+	if m.activeChatIndex == networkChatIndex {
 		return
 	}
 
-	modeledChannel := m.modeledChannels[m.chats[m.activeChat].GetTag()]
+	modeledChannel := m.modeledChannels[m.chats[m.activeChatIndex].GetTag()]
 	if err := modeledChannel.channel.SendMessage(cmd.MsgContent); err == nil {
-		m.addChannelMsg(m.activeChat, irc.ChannelMessage{
+		m.addChannelMsg(m.activeChatIndex, irc.ChannelMessage{
 			Sender:  m.network.GetNickname(),
 			Content: cmd.MsgContent,
 		})
@@ -386,38 +395,37 @@ func (m *model) resetChats() {
 	m.chats = m.chats[:1]
 
 	m.chatsList.SetChats(m.chats)
-	m.chatsList.SetSelectedChat(m.activeChat)
+	m.chatsList.SetSelectedChat(m.activeChatIndex)
+}
+
+func (m *model) addMsg(chatIndex int, msg string) {
+	atBottom := m.chats[chatIndex].AtBottom()
+
+	time := timeStyle.Render(currentTime())
+
+	m.chats[chatIndex].AddMsg(time + " " + msg)
+
+	if atBottom || chatIndex != m.activeChatIndex {
+		m.chats[chatIndex].GoToBottom()
+	}
 }
 
 func (m *model) addAppMsg(msg string) {
-	m.chats[networkChatIndex].AddMsg(appMsgStyle.Render(msg))
-	m.chats[networkChatIndex].GoToBottom()
-}
-
-func (m *model) goToBottomIfNotActiveChat(index int) {
-	if index != m.activeChat {
-		return
-	}
-
-	m.chats[index].GoToBottom()
+	m.addMsg(networkChatIndex, appMsgStyle.Render(msg))
 }
 
 func (m *model) addNetworkMsg(msg irc.NetworkMessage) {
-	m.chats[networkChatIndex].AddMsg(msg.Content)
-
-	m.goToBottomIfNotActiveChat(networkChatIndex)
+	m.addMsg(networkChatIndex, msg.Content)
 }
 
-func (m *model) addChannelMsg(index int, msg irc.ChannelMessage) {
+func (m *model) addChannelMsg(chatIndex int, msg irc.ChannelMessage) {
 	var msgContent string
 	if msg.Sender != "" {
 		msgContent = nickNameStyle.Render(msg.Sender) + " " + msg.Content
 	} else {
 		msgContent = msg.Content
 	}
-	m.chats[index].AddMsg(msgContent)
-
-	m.goToBottomIfNotActiveChat(index)
+	m.addMsg(chatIndex, msgContent)
 }
 
 func (m *model) quitCurrentNetwork() (string, bool) {
@@ -458,11 +466,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "alt+j":
-			m.chats[m.activeChat].ScrollOneLineDown()
+			m.chats[m.activeChatIndex].ScrollOneLineDown()
 		case "alt+k":
-			m.chats[m.activeChat].ScrollOneLineUp()
+			m.chats[m.activeChatIndex].ScrollOneLineUp()
 		case "alt+b":
-			m.chats[m.activeChat].GoToBottom()
+			m.chats[m.activeChatIndex].GoToBottom()
 		case "alt+p":
 			m.goToPreviousChat()
 		case "alt+n":
@@ -485,13 +493,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Alt {
 				m.goToPreviousChat()
 			} else {
-				m.chats[m.activeChat].WheelScrollUp()
+				m.chats[m.activeChatIndex].WheelScrollUp()
 			}
 		case tea.MouseButtonWheelDown:
 			if msg.Alt {
 				m.goToNextChat()
 			} else {
-				m.chats[m.activeChat].WheelScrollDown()
+				m.chats[m.activeChatIndex].WheelScrollDown()
 			}
 		}
 	case connectionMsg:
@@ -521,7 +529,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	m.prompt, promptCmd = m.prompt.Update(msg)
 	m.chatsList, chatsListCmd = m.chatsList.Update(msg)
-	m.chats[m.activeChat], activeChatCmd = m.chats[m.activeChat].Update(msg)
+	m.chats[m.activeChatIndex], activeChatCmd = m.chats[m.activeChatIndex].Update(msg)
 	m.sliding, slidingCmd = m.sliding.Update(msg)
 
 	cmds := tea.Batch(
@@ -539,7 +547,7 @@ func (m model) View() string {
 	chats := paddedBorderStyle.Render(lipgloss.PlaceHorizontal(
 		m.chatsList.GetWidth(), lipgloss.Left, m.chatsList.View()))
 	sliding := slidingStyle.Render(m.sliding.View())
-	activeChat := roundedBorderStyle.Render(m.chats[m.activeChat].View())
+	activeChat := roundedBorderStyle.Render(m.chats[m.activeChatIndex].View())
 	prompt := m.prompt.View()
 
 	return lipgloss.JoinHorizontal(
@@ -552,7 +560,7 @@ func initialModel() model {
 	m := model{}
 
 	m.modeledChannels = map[string]modeledChannel{}
-	m.activeChat = networkChatIndex
+	m.activeChatIndex = networkChatIndex
 	m.chats = []chat.Model{chat.InitialModel("network")}
 	m.chatsList = chatslist.InitialModel()
 	m.chatsList.SetChats(m.chats)
