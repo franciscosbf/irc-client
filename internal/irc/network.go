@@ -373,7 +373,7 @@ func (n *Network) StartListener() {
 			msg, err = n.fetchMessage()
 			if err != nil {
 				if err != io.EOF && !errors.Is(err, net.ErrClosed) {
-					log.Printf("failed to read message from network: %v\n", err)
+					log.Printf("Failed to read message from network: %v\n", err)
 				}
 				return
 			}
@@ -411,9 +411,15 @@ func (n *Network) StartListener() {
 					n.msgs <- NetworkMessage{
 						Content: cmsg.content,
 					}
-				case err_NOSUCHCHANNEL, err_NOTONCHANNEL:
+				case err_NOSUCHCHANNEL:
+					tag := strings.TrimPrefix(cmsg.content, " :")
 					n.msgs <- NetworkMessage{
-						Content: cmsg.content,
+						Content: "No such channel with name " + tag,
+					}
+				case err_NOTONCHANNEL:
+					tag := strings.TrimPrefix(cmsg.content, " :")
+					n.msgs <- NetworkMessage{
+						Content: "You aren't on channel " + tag,
 					}
 				case err_ERRONEUSNICKNAME:
 					nickname := n.getNickname()
@@ -451,8 +457,7 @@ func (n *Network) StartListener() {
 					}
 					return
 				default:
-					log.Printf(
-						"unknown reply -> %s\n", cmsg.getUnparsed())
+					log.Printf("Unknown reply -> %s\n", cmsg.getUnparsed())
 				}
 			case quitMessage:
 				uorigin := cmsg.origin.(userOrigin)
@@ -552,7 +557,7 @@ func (n *Network) StartListener() {
 					server: sorigin.servername,
 				}
 				if err := n.conn.write(pongMsg.encode()); err != nil {
-					log.Printf("failed to send pong: %v\n", err)
+					log.Printf("Failed to send pong: %v\n", err)
 					return
 				}
 			case noticeMessage:
@@ -576,7 +581,7 @@ func (n *Network) StartListener() {
 					Content: "Your modes are " + cmsg.modes,
 				}
 			case unknownMessage:
-				log.Printf("unknown message -> %s\n", msg.getUnparsed())
+				log.Printf("Unknown message -> %s\n", msg.getUnparsed())
 			}
 		}
 	}()
