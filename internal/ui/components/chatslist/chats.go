@@ -75,7 +75,7 @@ func InitialModel() Model {
 		Bold(true).
 		PaddingLeft(1).
 		Border(lipgloss.Border{Left: "|"}, false, false, false, true).
-		Foreground(lipgloss.Color("#bde1e4"))
+		Foreground(lipgloss.AdaptiveColor{Light: "#2fabb5", Dark: "#bde1e4"})
 
 	m.list = list.New([]list.Item{}, listDelegate, 0, 0)
 	m.list.SetShowTitle(false)

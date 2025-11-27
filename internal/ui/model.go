@@ -31,7 +31,7 @@ var roundedBorderStyle = lipgloss.NewStyle().
 
 var slidingStyle = lipgloss.NewStyle().
 	Bold(true).
-	Foreground(lipgloss.Color("#bde1e4")).
+	Foreground(lipgloss.AdaptiveColor{Light: "#2fabb5", Dark: "#bde1e4"}).
 	PaddingLeft(1)
 
 var appMsgStyle = lipgloss.NewStyle().
@@ -175,6 +175,7 @@ func (m *model) addaptToWindowSize(width, height int) {
 	m.sliding.SetWidth(mod(leftSlice - 3))
 	m.chats[m.activeChatIndex].SetSize(mod(rightSlice-2), mod(height-3))
 	m.prompt.SetWidth(rightSlice)
+
 	if m.chats[m.activeChatIndex].PastBottom() {
 		m.chats[m.activeChatIndex].GoToBottom()
 	}

@@ -14,6 +14,14 @@ type Model struct {
 	viewport viewport.Model
 }
 
+func (m *Model) setContent() {
+	joinedMsgs := strings.Join(m.msgs, "\n")
+	renderedMsgs := lipgloss.NewStyle().
+		Width(m.viewport.Width).
+		Render(joinedMsgs)
+	m.viewport.SetContent(renderedMsgs)
+}
+
 func (m Model) GetTag() string {
 	return m.tag
 }
@@ -29,11 +37,7 @@ func (m Model) GetHeight() int {
 func (m *Model) AddMsg(msg string) {
 	m.msgs = append(m.msgs, msg)
 
-	joinedMsgs := strings.Join(m.msgs, "\n")
-	renderedMsgs := lipgloss.NewStyle().
-		Width(m.viewport.Width).
-		Render(joinedMsgs)
-	m.viewport.SetContent(renderedMsgs)
+	m.setContent()
 }
 
 func (m *Model) ScrollOneLineUp() {
@@ -75,6 +79,8 @@ func (m *Model) GoToBottom() {
 func (m *Model) SetSize(width int, height int) {
 	m.viewport.Width = width
 	m.viewport.Height = height
+
+	m.setContent()
 }
 
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
