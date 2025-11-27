@@ -146,7 +146,7 @@ func Parse(input string) (Cmd, error) {
 			}
 		}
 		return DisconnectCmd{}, nil
-	case Join.toString(), Part.toString():
+	case Join.toString():
 		if args == "" {
 			return nil, InvalidCmdErr{
 				CmdType: Join,
