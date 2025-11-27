@@ -54,6 +54,12 @@ type channelMsg struct {
 	isOpen  bool
 }
 
+type connectionMsg struct {
+	cmd  cmds.ConnectCmd
+	conn *irc.NetworkConnection
+	err  error
+}
+
 func networkMsgCmd(network *irc.Network) tea.Cmd {
 	return func() tea.Msg {
 		msg, ok := network.ReceiveMessage()
@@ -77,12 +83,40 @@ func channelMsgCmd(network *irc.Network, channel *irc.NetworkChannel) tea.Cmd {
 	}
 }
 
+func connectionMsgCmd(cmd cmds.ConnectCmd) tea.Cmd {
+	return func() tea.Msg {
+		conn, err := irc.DialNetworkConnection(cmd.Host, cmd.Port)
+		return connectionMsg{
+			cmd:  cmd,
+			conn: conn,
+			err:  err,
+		}
+	}
+}
+
+type connDialup struct {
+	inProcess bool
+	host      string
+}
+
+func (cd *connDialup) register(host string) {
+	*cd = connDialup{
+		inProcess: true,
+		host:      host,
+	}
+}
+
+func (cd *connDialup) unregister() {
+	*cd = connDialup{}
+}
+
 type modeledChannel struct {
 	index   int
 	channel *irc.NetworkChannel
 }
 
 type model struct {
+	connDialup      connDialup
 	network         *irc.Network
 	modeledChannels map[string]modeledChannel
 	chatsList       chatslist.Model
@@ -161,23 +195,9 @@ func (m *model) onConnectCmd(cmd cmds.ConnectCmd) tea.Cmd {
 		return nil
 	}
 
-	conn, err := irc.DialNetworkConnection(cmd.Host, cmd.Port)
-	if err != nil {
-		m.addAppMsg("Failed to dial connection")
-		return nil
-	}
+	m.connDialup.register(cmd.Host)
 
-	network := irc.NewNetwork(conn)
-	network.StartListener()
-	if err := network.Register(cmd.Nickname, cmd.Name); err != nil {
-		m.addAppMsg("Failed to send connection registration")
-		return nil
-	}
-
-	m.network = network
-	m.sliding.SetText("Connected to network " + cmd.Host)
-
-	return networkMsgCmd(network)
+	return connectionMsgCmd(cmd)
 }
 
 func (m *model) onDisconnectCmd() {
@@ -283,34 +303,36 @@ func (m *model) interpretUserInput() (teaCmd tea.Cmd, exit bool) {
 	case cmds.QuitCmd:
 		m.onQuitCmd()
 		exit = true
-	case cmds.ConnectCmd:
-		teaCmd = m.onConnectCmd(cmd)
 	default:
-		if m.network == nil {
+		if m.connDialup.inProcess {
+			m.addAppMsg("Still waiting to connect to " + m.connDialup.host)
+		} else if cmd.GetType() == cmds.Connect {
+			teaCmd = m.onConnectCmd(cmd.(cmds.ConnectCmd))
+		} else if m.network == nil {
 			if cmd.GetType() != cmds.Msg {
 				m.addAppMsg("No current network")
 			}
-			break
-		}
-		switch cmd := cmd.(type) {
-		case cmds.DisconnectCmd:
-			m.onDisconnectCmd()
-		case cmds.NickCmd:
-			m.onNickCmd(cmd)
-		default:
-			if !m.network.IsRegistered() {
-				if cmd.GetType() != cmds.Msg {
-					m.addAppMsg("Wait until user registration is complete")
-				}
-				break
-			}
+		} else {
 			switch cmd := cmd.(type) {
-			case cmds.JoinCmd:
-				teaCmd = m.onJoinCmd(cmd)
-			case cmds.PartCmd:
-				m.onPartCmd(cmd)
-			case cmds.MsgCmd:
-				m.onMsgCmd(cmd)
+			case cmds.DisconnectCmd:
+				m.onDisconnectCmd()
+			case cmds.NickCmd:
+				m.onNickCmd(cmd)
+			default:
+				if !m.network.IsRegistered() {
+					if cmd.GetType() != cmds.Msg {
+						m.addAppMsg("Wait until user registration is complete")
+					}
+					break
+				}
+				switch cmd := cmd.(type) {
+				case cmds.JoinCmd:
+					teaCmd = m.onJoinCmd(cmd)
+				case cmds.PartCmd:
+					m.onPartCmd(cmd)
+				case cmds.MsgCmd:
+					m.onMsgCmd(cmd)
+				}
 			}
 		}
 	}
@@ -472,6 +494,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.chats[m.activeChat].WheelScrollDown()
 			}
 		}
+	case connectionMsg:
+		m.connDialup.unregister()
+		if msg.err != nil {
+			m.addAppMsg("Failed to dial connection")
+			break
+		}
+		network := irc.NewNetwork(msg.conn)
+		network.StartListener()
+		if err := network.Register(msg.cmd.Nickname, msg.cmd.Name); err != nil {
+			m.addAppMsg("Failed to send connection registration")
+			break
+		}
+		m.network = network
+		m.sliding.SetText("Connected to network " + msg.cmd.Host)
+		appendAdditionalCmd(networkMsgCmd(network))
 	case networkMsg:
 		if cmd := m.interpretNetworkMsg(msg); cmd != nil {
 			appendAdditionalCmd(cmd)
